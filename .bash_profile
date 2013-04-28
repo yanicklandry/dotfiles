@@ -74,7 +74,6 @@ alias v="vagrant"
 alias VBoxManage="/Applications/VirtualBox.app/Contents/MacOS/VBoxManage-x86"
 
 alias filemerge="/Applications/Xcode.app/Contents/Applications/FileMerge.app/Contents/MacOS/FileMerge"
-export PATH=$PATH:/Applications/acquia-drupal/drush
 
 # aliases for Digital Midi :
 alias gall='bundle exec guard -g all'
