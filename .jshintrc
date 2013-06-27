@@ -1,6 +1,7 @@
 {
   "undef": true,
-  "unused": true,
+  "unused": false,
   "predef": ["$", "window", "document", "navigator", "console", "setTimeout", "Drupal",  "Mustache"],
-  "node": true
+  "node": true,
+  "strict": false
 }
