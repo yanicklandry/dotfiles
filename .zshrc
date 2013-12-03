@@ -37,7 +37,7 @@ plugins=(git)
 source $ZSH/oh-my-zsh.sh
 
 # Customize to your needs...
-export PATH=/usr/local/bin:/usr/local/sbin:/usr/local/mysql/bin:/usr/local/share/npm/bin:/Users/yanicklandry/.rvm/gems/ruby-1.9.3-p194/bin:/Users/yanicklandry/.rvm/gems/ruby-1.9.3-p194@global/bin:/Users/yanicklandry/.rvm/rubies/ruby-1.9.3-p194/bin:/Users/yanicklandry/.rvm/bin:/usr/local/sbin:/Applications/MAMP/bin/php/php5.4.4/bin:/Applications/Postgres.app/Contents/MacOS/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/X11/bin:/Users/yanicklandry/.rvm/bin:/Users/yanicklandry/bin:/usr/local/mysql/bin:/Applications/acquia-drupal/drush
+export PATH=$PATH:/usr/local/bin:/usr/local/sbin:/usr/local/mysql/bin:/usr/local/share/npm/bin:/Users/yanicklandry/.rvm/gems/ruby-1.9.3-p194/bin:/Users/yanicklandry/.rvm/gems/ruby-1.9.3-p194@global/bin:/Users/yanicklandry/.rvm/rubies/ruby-1.9.3-p194/bin:/Users/yanicklandry/.rvm/bin:/usr/local/sbin:/Applications/MAMP/bin/php/php5.4.4/bin:/Applications/Postgres.app/Contents/MacOS/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/X11/bin:/Users/yanicklandry/.rvm/bin:/Users/yanicklandry/bin:/usr/local/mysql/bin:/Applications/acquia-drupal/drush
 
 # <path>
 
@@ -46,6 +46,7 @@ PATH=/Applications/Postgres.app/Contents/MacOS/bin:/usr/local/bin:$PATH:$HOME/.r
 
 # Use MAMPS's PHP
 PATH=/Applications/MAMP/bin/php/php5.4.4/bin:$PATH
+alias php="/Applications/MAMP/bin/php/php5.4.10/bin/php"
 
 #add sbin to PATH (for Homebrew)
 PATH=/usr/local/sbin:$PATH
@@ -101,7 +102,7 @@ function winname { printf "\e]2;$1\a"; }
 function ssh() { echo "$@" | tabname `sed -E 's/(.*@)?([-a-zA-Z0-9\.]*)(.*)/\2/'`; /usr/bin/ssh "$@"; tabname; }
 
 # SourceTreeApp
-alias sourcetree='open -a SourceTree'
+alias st='open -a SourceTree'
 
 # SickBeard alias
 alias sickbeard="python ~/Documents/code/python/Sick-Beard/SickBeard.py"
@@ -120,8 +121,11 @@ alias hps='heroku ps --app digital-midi-staging'
 ARCHFLAGS="-arch x86_64"
 
 # other aliases
-alias duu="du -sm * |sort -n"
+alias duu="du -sm | sort -n"
 alias v="vagrant"
 alias VBoxManage="/Applications/VirtualBox.app/Contents/MacOS/VBoxManage-x86"
 alias filemerge="/Applications/Xcode.app/Contents/Applications/FileMerge.app/Contents/MacOS/FileMerge"
 alias g="git"
+
+# google chrome canary
+alias can="open -a Google\ Chrome\ Canary"
