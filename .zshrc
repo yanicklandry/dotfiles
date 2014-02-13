@@ -96,11 +96,6 @@ export EDITOR="nano"
 alias  l="ls -lha" # list / human readable size / including hidden (alpha order)
 alias ll="ls -ltrha" # list / order by time / reversed / human readable size / including hidden
 
-# naming tabs with ssh hostnames
-function tabname { printf "\e]1;$1\a"; }
-function winname { printf "\e]2;$1\a"; }
-function ssh() { echo "$@" | tabname `sed -E 's/(.*@)?([-a-zA-Z0-9\.]*)(.*)/\2/'`; /usr/bin/ssh "$@"; tabname; }
-
 # SourceTreeApp
 alias st='open -a SourceTree'
 
