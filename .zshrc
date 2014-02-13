@@ -44,10 +44,6 @@ export PATH=$PATH:/usr/local/bin:/usr/local/sbin:/usr/local/mysql/bin:/usr/local
 # Add RVM to PATH for scripting
 PATH=/Applications/Postgres.app/Contents/MacOS/bin:/usr/local/bin:$PATH:$HOME/.rvm/bin:$HOME/bin:/usr/local/mysql/bin 
 
-# Use MAMPS's PHP
-PATH=/Applications/MAMP/bin/php/php5.4.4/bin:$PATH
-alias php="/Applications/MAMP/bin/php/php5.4.10/bin/php"
-
 #add sbin to PATH (for Homebrew)
 PATH=/usr/local/sbin:$PATH
 
