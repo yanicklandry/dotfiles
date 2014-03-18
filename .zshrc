@@ -122,3 +122,5 @@ alias g="git"
 alias can="open -a Google\ Chrome\ Canary"
 
 export WP_CLI_PHP="/usr/bin/php"
+
+alias c="php app/console"
