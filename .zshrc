@@ -37,7 +37,7 @@ plugins=(git)
 source $ZSH/oh-my-zsh.sh
 
 # Customize to your needs...
-export PATH=$PATH:/usr/local/bin:/usr/local/sbin:/usr/local/mysql/bin:/usr/local/share/npm/bin:/Users/yanicklandry/.rvm/gems/ruby-1.9.3-p194/bin:/Users/yanicklandry/.rvm/gems/ruby-1.9.3-p194@global/bin:/Users/yanicklandry/.rvm/rubies/ruby-1.9.3-p194/bin:/Users/yanicklandry/.rvm/bin:/usr/local/sbin:/Applications/MAMP/bin/php/php5.4.4/bin:/Applications/Postgres.app/Contents/MacOS/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/X11/bin:/Users/yanicklandry/.rvm/bin:/Users/yanicklandry/bin:/usr/local/mysql/bin:/Applications/acquia-drupal/drush
+export PATH=$PATH:/usr/local/bin:/usr/local/sbin:/usr/local/mysql/bin:/usr/local/share/npm/bin:/Users/yanicklandry/.rvm/gems/ruby-1.9.3-p194/bin:/Users/yanicklandry/.rvm/gems/ruby-1.9.3-p194@global/bin:/Users/yanicklandry/.rvm/rubies/ruby-1.9.3-p194/bin:/Users/yanicklandry/.rvm/bin:/usr/local/sbin:/Applications/MAMP/bin/php/php5.4.4/bin:/Applications/Postgres.app/Contents/MacOS/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/X11/bin:/Users/yanicklandry/.rvm/bin:/Users/yanicklandry/bin:/usr/local/mysql/bin:/Applications/acquia-drupal/drush:$HOME/bin
 
 # <path>
 
@@ -124,3 +124,6 @@ alias can="open -a Google\ Chrome\ Canary"
 export WP_CLI_PHP="/usr/bin/php"
 
 alias c="php app/console"
+
+PATH="$PATH:/Users/yanick/bin"
+export PATH
