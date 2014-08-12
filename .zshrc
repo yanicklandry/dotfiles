@@ -32,40 +32,29 @@ ZSH_THEME="robbyrussell"
 # Which plugins would you like to load? (plugins can be found in ~/.oh-my-zsh/plugins/*)
 # Custom plugins may be added to ~/.oh-my-zsh/custom/plugins/
 # Example format: plugins=(rails git textmate ruby lighthouse)
-plugins=(git)
+plugins=(git jira)
 
 source $ZSH/oh-my-zsh.sh
 
 # Customize to your needs...
-export PATH=$PATH:/usr/local/bin:/usr/local/sbin:/usr/local/mysql/bin:/usr/local/share/npm/bin:/Users/yanicklandry/.rvm/gems/ruby-1.9.3-p194/bin:/Users/yanicklandry/.rvm/gems/ruby-1.9.3-p194@global/bin:/Users/yanicklandry/.rvm/rubies/ruby-1.9.3-p194/bin:/Users/yanicklandry/.rvm/bin:/usr/local/sbin:/Applications/MAMP/bin/php/php5.4.4/bin:/Applications/Postgres.app/Contents/MacOS/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/X11/bin:/Users/yanicklandry/.rvm/bin:/Users/yanicklandry/bin:/usr/local/mysql/bin:/Applications/acquia-drupal/drush:$HOME/bin
-
-# <path>
-
-# Add RVM to PATH for scripting
-PATH=/Applications/Postgres.app/Contents/MacOS/bin:/usr/local/bin:$PATH:$HOME/.rvm/bin:$HOME/bin:/usr/local/mysql/bin 
-
-#add sbin to PATH (for Homebrew)
-PATH=/usr/local/sbin:$PATH
-
-# </path>
+source .profile
 
 # <prompt>
 # D=$'\e[37;40m'
 # PINK=$'\e[35;40m'
 # GREEN=$'\e[32;40m'
 # ORANGE=$'\e[33;40m'
-# 
+#
 # hg_ps1() {
 #     hg prompt "{${D} on ${PINK}{branch}}{${D} at ${ORANGE}{bookmark}}{${GREEN}{status}}" 2> /dev/null
 # }
-# 
+#
 # export PS1='\n${PINK}\u ${D}at ${ORANGE}\h ${D}in ${GREEN}\w$(hg_ps1)\
 # ${D}\n$ '
 
 # </prompt>
 
 # RVM
-[[ -s "$HOME/.rvm/scripts/rvm" ]] && . "$HOME/.rvm/scripts/rvm"  # This loads RVM 
 
 # Rails alias
 alias r="rails"
@@ -82,7 +71,6 @@ alias flush_dns="sudo killall -HUP mDNSResponder"
 
 # node.js and npm
 export NODE_PATH="/usr/local/lib/node"
-export PATH="/usr/local/bin:/usr/local/sbin:/usr/local/mysql/bin:/usr/local/share/npm/bin:$PATH"
 
 # TextMate alias
 alias m="mate"
@@ -125,5 +113,5 @@ export WP_CLI_PHP="/usr/bin/php"
 
 alias c="php app/console"
 
-PATH="$PATH:/Users/yanick/bin"
-export PATH
+
+export PATH="$PATH:$HOME/.rvm/bin" # Add RVM to PATH for scripting
