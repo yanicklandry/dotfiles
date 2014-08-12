@@ -67,7 +67,7 @@ alias pow_restart="touch ~/.pow/restart.txt"
 # export DYLD_LIBRARY_PATH=/usr/local/mysql/lib:$DYLD_LIBRARY_PATH
 
 # flush dns alias
-alias flush_dns="sudo killall -HUP mDNSResponder"
+alias flush_dns="sudo discoveryutil mdnsflushcache"
 
 # node.js and npm
 export NODE_PATH="/usr/local/lib/node"
