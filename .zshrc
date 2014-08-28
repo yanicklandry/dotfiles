@@ -113,6 +113,3 @@ export WP_CLI_PHP="/usr/bin/php"
 
 alias c="php app/console"
 
-
-export PATH="$PATH:$HOME/.rvm/bin" # Add RVM to PATH for scripting
-export DYLD_LIBRARY_PATH="$MAGICK_HOME/lib/"
