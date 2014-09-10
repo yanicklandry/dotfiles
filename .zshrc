@@ -113,3 +113,5 @@ export WP_CLI_PHP="/usr/bin/php"
 
 alias c="php app/console"
 
+
+source $(brew --prefix nvm)/nvm.sh
