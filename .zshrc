@@ -115,3 +115,9 @@ alias c="php app/console"
 
 
 source $(brew --prefix nvm)/nvm.sh
+
+#alias for cnpm
+alias cnpm="npm --registry=http://registry.npm.taobao.org \
+  --cache=$HOME/.npm/.cache/cnpm \
+  --disturl=http://npm.taobao.org/dist \
+  --userconfig=$HOME/.cnpmrc"
