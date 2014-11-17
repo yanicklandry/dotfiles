@@ -37,7 +37,7 @@ plugins=(git jira)
 source $ZSH/oh-my-zsh.sh
 
 # Customize to your needs...
-source .profile
+source ~/.profile
 
 # <prompt>
 # D=$'\e[37;40m'
@@ -121,3 +121,6 @@ alias cnpm="npm --registry=http://registry.npm.taobao.org \
   --cache=$HOME/.npm/.cache/cnpm \
   --disturl=http://npm.taobao.org/dist \
   --userconfig=$HOME/.cnpmrc"
+
+# added by travis gem
+[ -f /Users/yanick/.travis/travis.sh ] && source /Users/yanick/.travis/travis.sh
