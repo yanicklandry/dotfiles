@@ -1,7 +1,5 @@
 {
+  "asi": true,
   "undef": true,
-  "unused": false,
-  "predef": ["$", "window", "document", "navigator", "console", "setTimeout", "Drupal",  "Mustache"],
-  "node": true,
-  "strict": false
+  "node": true
 }
