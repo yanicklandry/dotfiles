@@ -5,16 +5,21 @@
 [user]
 	name = Yanick Landry
 	email = yanick.landry@gmail.com
+[url "git@github.com:"]
+	insteadOf = https://github.com/
+[cola]
+	spellcheck = false
 [push]
-	default = simple
+	default = current
+[fetch]
+	prune = true
+[pull]
+	rebase = false
+[init]
+	defaultBranch = master
 [core]
-	excludesfile = /Users/yanick/.gitignore_global
-[difftool "sourcetree"]
-	cmd = opendiff \"$LOCAL\" \"$REMOTE\"
-	path = 
-[mergetool "sourcetree"]
-	cmd = /Applications/SourceTree.app/Contents/Resources/opendiff-w.sh \"$LOCAL\" \"$REMOTE\" -ancestor \"$BASE\" -merge \"$MERGED\"
-	trustExitCode = true
+	autocrlf = input
+	safecrlf = false
 [alias]
   co = checkout
   ci = commit
