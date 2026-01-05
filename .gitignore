@@ -1,0 +1,13 @@
+# Ignore files with sensitive environment variables
+.env
+.env.*
+
+# Ignore OS files
+.DS_Store
+
+# Ignore any files containing secrets or API keys
+*secret*
+*credential*
+*token*
+*.pem
+*.key

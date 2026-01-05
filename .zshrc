@@ -5,6 +5,7 @@ ZSH_THEME="robbyrussell"
 
 plugins=(git aws cp docker docker-compose github golang helm jira kubectl minikube npm node python rsync screen ssh-agent sudo svn terraform pipenv vscode yarn)
 SHOW_AWS_PROMPT=false
+export AWS_PAGER=""
 
 source $ZSH/oh-my-zsh.sh
 
@@ -13,15 +14,19 @@ alias tf="terraform"
 alias docker-prune="docker system prune -af && docker image prune -af && docker volume prune -f && df -h"
 alias docker-clean="docker container prune -f && docker image prune -af && docker volume prune -f && docker network prune -f && df -h"
 alias dc="docker-compose"
+alias dc-restart="dc down && dc up --build -d && dc logs -f"
 
-export EDITOR="code -w"
+export EDITOR="$HOME/bin/code-wait"
+export VISUAL="$HOME/bin/code-wait"
 
 alias pbcopy='xclip -selection clipboard'
 alias pbpaste='xclip -selection clipboard -o'
 
 export PATH=/usr/local/aws-cli/v2/2.0.57/bin:$PATH
 
-# Brew Stuff
+# Brew Stuff - initialize early so nvm can override
+
+eval "$( brew shellenv )"
 
 export LDFLAGS="-L/home/linuxbrew/.linuxbrew/opt/isl@0.18/lib"
 export CPPFLAGS="-I/home/linuxbrew/.linuxbrew/opt/isl@0.18/include"
@@ -33,13 +38,18 @@ export HOMEBREW_NO_ENV_HINTS=1
 
 alias g="git"
 
+# export LLM_MODEL=gemini-2.0-flash
+export LLM_MODEL=claude-4-sonnet
+alias gc='git commit -m "$(git diff HEAD | llm -m $LLM_MODEL -s "write a conventional commit message (feat/fix/docs/style/refactor) with scope")" -e'
+
 # NVM Stuff
 
-# export NVM_DIR="$HOME/.nvm"
-# [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"  # This loads nvm
-# [ -s "$NVM_DIR/bash_completion" ] && \. "$NVM_DIR/bash_completion"  # This loads nvm bash_completion
-# # place this after nvm initialization!
-# autoload -U add-zsh-hook
+export NVM_DIR="$HOME/.nvm"
+[ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"  # This loads nvm
+[ -s "$NVM_DIR/bash_completion" ] && \. "$NVM_DIR/bash_completion"  # This loads nvm bash_completion
+# place this after nvm initialization!
+autoload -U add-zsh-hook
+
 # load-nvmrc() {
 #   local node_version="$(nvm version)"
 #   local nvmrc_path="$(nvm_find_nvmrc)"
@@ -101,9 +111,6 @@ case ":$PATH:" in
 esac
 # pnpm end
 
-
-eval "$( brew shellenv )"
-
 # Set your preferred python version.
 # If you just want the latest release, you don't need to
 # specify anything more than the major version number.
@@ -156,3 +163,20 @@ pybake() {
 
 # source $HOME/.profile
 
+export PATH="$PATH:$HOME/bin"
+
+export CPATH="/opt/homebrew/include"
+export C_INCLUDE_PATH="/opt/homebrew/include"
+
+# Load API keys from separate env file (not tracked in git)
+[ -f "$HOME/.env.local" ] && source "$HOME/.env.local"
+
+alias up="~/bin/.htotheizzo/htotheizzo-gui.sh"
+export ANDROID_HOME="/opt/homebrew/share/android-commandlinetools"
+export PATH="$ANDROID_HOME/cmdline-tools/latest/bin:$PATH"
+
+PATH="$HOME/perl5/bin${PATH:+:${PATH}}"; export PATH;
+PERL5LIB="$HOME/perl5/lib/perl5${PERL5LIB:+:${PERL5LIB}}"; export PERL5LIB;
+PERL_LOCAL_LIB_ROOT="$HOME/perl5${PERL_LOCAL_LIB_ROOT:+:${PERL_LOCAL_LIB_ROOT}}"; export PERL_LOCAL_LIB_ROOT;
+PERL_MB_OPT="--install_base \"$HOME/perl5\""; export PERL_MB_OPT;
+PERL_MM_OPT="INSTALL_BASE=$HOME/perl5"; export PERL_MM_OPT;
