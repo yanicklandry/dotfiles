@@ -11,3 +11,8 @@
 *token*
 *.pem
 *.key
+bin/.htotheizzo
+bin/claude-process-manager
+bin/cproc2
+bin/htotheizzo.sh
+bin/cproc
