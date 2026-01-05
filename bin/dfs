@@ -1,0 +1,12 @@
+#!/bin/bash
+# Simplified df output for macOS - shows only the important filesystems
+
+df -h | awk '
+BEGIN {
+    printf "%-20s %10s %10s %10s %5s  %s\n", "Filesystem", "Size", "Used", "Avail", "Use%", "Mounted on"
+    printf "%-20s %10s %10s %10s %5s  %s\n", "----------", "----", "----", "-----", "----", "----------"
+}
+NR==1 { next }  # Skip header
+/\/System\/Volumes\/Data$/ { print $1, $2, $3, $4, $5, $9 }  # Main user data volume
+/^\/dev\/disk[0-9]/ && !/\/System\// && !/CoreSimulator/ && !/\/dev$/ && NF >= 9 && $9 !~ /^\/$/ { print $1, $2, $3, $4, $5, $9 }  # External drives only
+' | column -t
