@@ -40,7 +40,7 @@ alias g="git"
 
 # export LLM_MODEL=gemini-2.0-flash
 export LLM_MODEL=claude-4-sonnet
-alias gc='git commit -m "$(git diff HEAD | llm -m $LLM_MODEL -s "write a conventional commit message (feat/fix/docs/style/refactor) with scope")" -e'
+alias gc='git commit -m "$( (git diff --staged --stat && echo "---" && git diff --staged -- ":(exclude)package-lock.json" ":(exclude)pnpm-lock.yaml" ":(exclude)yarn.lock" ":(exclude)*.lock" | head -n 5000) | llm -m $LLM_MODEL -s "write a conventional commit message (feat/fix/docs/style/refactor) with scope. Output ONLY the commit message text - no markdown, no backticks, no code blocks, just the plain commit message")" -e'
 
 # NVM Stuff
 
