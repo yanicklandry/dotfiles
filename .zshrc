@@ -29,7 +29,11 @@ export PATH=/usr/local/aws-cli/v2/2.0.57/bin:$PATH
 eval "$( brew shellenv )"
 
 export LDFLAGS="-L/home/linuxbrew/.linuxbrew/opt/isl@0.18/lib"
+export LANG=en_US.UTF-8
+
 export CPPFLAGS="-I/home/linuxbrew/.linuxbrew/opt/isl@0.18/include"
+export CPPFLAGS="-I/opt/homebrew/opt/openjdk@17/include"
+
 export PKG_CONFIG_PATH="/home/linuxbrew/.linuxbrew/opt/isl@0.18/lib/pkgconfig"
 export PATH="/home/linuxbrew/.linuxbrew/bin:$PATH"
 export PATH="/home/linuxbrew/.linuxbrew/sbin:$PATH"
@@ -180,3 +184,4 @@ PERL5LIB="$HOME/perl5/lib/perl5${PERL5LIB:+:${PERL5LIB}}"; export PERL5LIB;
 PERL_LOCAL_LIB_ROOT="$HOME/perl5${PERL_LOCAL_LIB_ROOT:+:${PERL_LOCAL_LIB_ROOT}}"; export PERL_LOCAL_LIB_ROOT;
 PERL_MB_OPT="--install_base \"$HOME/perl5\""; export PERL_MB_OPT;
 PERL_MM_OPT="INSTALL_BASE=$HOME/perl5"; export PERL_MM_OPT;
+export PATH="/opt/homebrew/opt/openjdk@17/bin:$PATH"
