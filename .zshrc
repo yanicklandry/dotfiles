@@ -1,104 +1,97 @@
 export ZSH="$HOME/.oh-my-zsh"
-
-# See https://github.com/ohmyzsh/ohmyzsh/wiki/Themes
 ZSH_THEME="robbyrussell"
 
 plugins=(git aws docker docker-compose github golang helm jira kubectl minikube npm node python rsync screen ssh-agent sudo svn terraform pipenv vscode yarn)
 SHOW_AWS_PROMPT=false
 export AWS_PAGER=""
 
+# Brew — must come before oh-my-zsh so paths/fpath are available
+eval "$(brew shellenv)"
 fpath+=("$(brew --prefix eza)/share/zsh/site-functions")
 
 source $ZSH/oh-my-zsh.sh
 
-alias tf="terraform"
+# Disable eza's broken zsh completion function (quotes filenames)
+compdef -d eza
 
-alias docker-prune="docker system prune -af && docker image prune -af && docker volume prune -f && df -h"
-alias docker-clean="docker container prune -f && docker image prune -af && docker volume prune -f && docker network prune -f && df -h"
-alias dc="docker compose"
-alias dc-restart="dc down && dc up --build -d && dc logs -f"
+# ── Language / Locale ────────────────────────────────────────────────
+export LANG=en_US.UTF-8
 
+# ── Editors ──────────────────────────────────────────────────────────
 export EDITOR="$HOME/bin/code-wait"
 export VISUAL="$HOME/bin/code-wait"
 
-alias pbcopy='xclip -selection clipboard'
-alias pbpaste='xclip -selection clipboard -o'
-
-export PATH=/usr/local/aws-cli/v2/2.0.57/bin:$PATH
-
-# Brew Stuff - initialize early so nvm can override
-
-eval "$( brew shellenv )"
-
-export LDFLAGS="-L/home/linuxbrew/.linuxbrew/opt/isl@0.18/lib"
-export LANG=en_US.UTF-8
-
-export CPPFLAGS="-I/home/linuxbrew/.linuxbrew/opt/isl@0.18/include"
-export CPPFLAGS="-I/opt/homebrew/opt/openjdk@17/include"
-
-export PKG_CONFIG_PATH="/home/linuxbrew/.linuxbrew/opt/isl@0.18/lib/pkgconfig"
-export PATH="/home/linuxbrew/.linuxbrew/bin:$PATH"
-export PATH="/home/linuxbrew/.linuxbrew/sbin:$PATH"
+# ── Homebrew ─────────────────────────────────────────────────────────
 export HOMEBREW_AUTO_UPDATE_SECS=1200
 export HOMEBREW_NO_ENV_HINTS=1
 
-alias g="git"
-alias h="$HOME/bin/htotheizzo.sh"
-
-# export LLM_MODEL=gemini-2.0-flash
-export LLM_MODEL=claude-4-sonnet
-alias gc='git commit -m "$( (git diff --staged --stat && echo "---" && git diff --staged -- ":(exclude)package-lock.json" ":(exclude)pnpm-lock.yaml" ":(exclude)yarn.lock" ":(exclude)*.lock" | head -n 5000) | llm -m $LLM_MODEL -s "write a conventional commit message (feat/fix/docs/style/refactor) with scope. Output ONLY the commit message text - no markdown, no backticks, no code blocks, just the plain commit message")" -e'
-
-# NVM Stuff
-
+# ── NVM ──────────────────────────────────────────────────────────────
 export NVM_DIR="$HOME/.nvm"
-[ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"  # This loads nvm
-[ -s "$NVM_DIR/bash_completion" ] && \. "$NVM_DIR/bash_completion"  # This loads nvm bash_completion
-# place this after nvm initialization!
+[ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
+[ -s "$NVM_DIR/bash_completion" ] && \. "$NVM_DIR/bash_completion"
 autoload -U add-zsh-hook
 
-# load-nvmrc() {
-#   local node_version="$(nvm version)"
-#   local nvmrc_path="$(nvm_find_nvmrc)"
-
-#   if [ -n "$nvmrc_path" ]; then
-#     local nvmrc_node_version=$(nvm version "$(cat "${nvmrc_path}")")
-
-#     if [ "$nvmrc_node_version" = "N/A" ]; then
-#       nvm install
-#     elif [ "$nvmrc_node_version" != "$node_version" ]; then
-#       nvm use
-#     fi
-#   elif [ "$node_version" != "$(nvm version default)" ]; then
-#     echo "Reverting to nvm default version"
-#     nvm use default
-#   fi
-# }
-# add-zsh-hook chpwd load-nvmrc
-# load-nvmrc
-
-export DOTNET_CLI_TELEMETRY_OPTOUT="true"
-
-export PATH="$PATH:/opt/mssql-tools/bin"
-[ -f "$HOME/.ghcup/env" ] && source "$HOME/.ghcup/env" # ghcup-env
-
-# set PATH for cuda 10.1 installation
-if [ -d "/usr/local/cuda/bin/" ]; then
-    export PATH=/usr/local/cuda/bin${PATH:+:${PATH}}
-    export LD_LIBRARY_PATH=/usr/local/cuda/lib64${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}:/usr/local/cuda/extras/CUPTI/lib64
-fi
-
-export PATH="$HOME/.yarn/bin:$HOME/.config/yarn/global/node_modules/.bin:$PATH"
-
-# bun completions
+# ── Bun ──────────────────────────────────────────────────────────────
+export BUN_INSTALL="$HOME/.bun"
 [ -s "$HOME/.bun/_bun" ] && source "$HOME/.bun/_bun"
 
-# bun
-export BUN_INSTALL="$HOME/.bun"
-export PATH="$BUN_INSTALL/bin:$PATH"
+# ── Pnpm ─────────────────────────────────────────────────────────────
+export PNPM_HOME="$HOME/.local/share/pnpm"
 
-alias exa="eza"
-# In .zshrc — add --no-quotes and disable eza's broken completion function
+# ── Python / Pyenv / Pipx ────────────────────────────────────────────
+export PYENV_VERSION=3
+export PYENV_ROOT=~/.pyenv
+export PIPX_BIN_DIR=~/.local/bin
+
+# ── Java ─────────────────────────────────────────────────────────────
+export CPPFLAGS="-I/opt/homebrew/opt/openjdk@17/include"
+export CPATH="/opt/homebrew/include"
+export C_INCLUDE_PATH="/opt/homebrew/include"
+
+# ── Android ──────────────────────────────────────────────────────────
+export ANDROID_HOME="/opt/homebrew/share/android-commandlinetools"
+
+# ── Dotnet ───────────────────────────────────────────────────────────
+export DOTNET_CLI_TELEMETRY_OPTOUT="true"
+
+# ── Perl ─────────────────────────────────────────────────────────────
+export PERL5LIB="$HOME/perl5/lib/perl5${PERL5LIB:+:${PERL5LIB}}"
+export PERL_LOCAL_LIB_ROOT="$HOME/perl5${PERL_LOCAL_LIB_ROOT:+:${PERL_LOCAL_LIB_ROOT}}"
+export PERL_MB_OPT="--install_base \"$HOME/perl5\""
+export PERL_MM_OPT="INSTALL_BASE=$HOME/perl5"
+
+# ── PATH ─────────────────────────────────────────────────────────────
+export -U PATH path
+path=(
+  $PIPX_BIN_DIR
+  $PYENV_ROOT/{bin,shims}
+  $BUN_INSTALL/bin
+  $PNPM_HOME
+  $ANDROID_HOME/cmdline-tools/latest/bin
+  /opt/homebrew/opt/openjdk@17/bin
+  $HOME/perl5/bin
+  $HOME/bin
+  $path
+)
+
+# CUDA (only if present)
+if [ -d "/usr/local/cuda/bin/" ]; then
+  path=(/usr/local/cuda/bin $path)
+  export LD_LIBRARY_PATH=/usr/local/cuda/lib64${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}:/usr/local/cuda/extras/CUPTI/lib64
+fi
+
+# ── Aliases: Git ─────────────────────────────────────────────────────
+alias g="git"
+export LLM_MODEL=claude-sonnet-4-6
+alias gc='git commit -m "$( (git diff --staged --stat && echo "---" && git diff --staged -- ":(exclude)package-lock.json" ":(exclude)pnpm-lock.yaml" ":(exclude)yarn.lock" ":(exclude)*.lock" | head -n 5000) | llm -m $LLM_MODEL -s "write a conventional commit message (feat/fix/docs/style/refactor) with scope. Output ONLY the commit message text - no markdown, no backticks, no code blocks, just the plain commit message")" -e'
+
+# ── Aliases: Docker ──────────────────────────────────────────────────
+alias dc="docker compose"
+alias dc-restart="dc down && dc up --build -d && dc logs -f"
+alias docker-prune="docker system prune -af && docker image prune -af && docker volume prune -f && df -h"
+alias docker-clean="docker container prune -f && docker image prune -af && docker volume prune -f && docker network prune -f && df -h"
+
+# ── Aliases: eza (ls) ────────────────────────────────────────────────
 alias ls="eza --icons --no-quotes"
 alias ll="eza --icons --no-quotes -l"
 alias la="eza --icons --no-quotes -a"
@@ -106,90 +99,30 @@ alias l="eza --icons --no-quotes -l"
 alias ld="eza --icons --no-quotes -l -d"
 alias lt="eza --icons --no-quotes -l -t"
 
-# After the source oh-my-zsh.sh line, disable eza's completion function
-# so zsh uses generic file completion instead (which works correctly)
-compdef -d eza
-
+# ── Aliases: Misc ────────────────────────────────────────────────────
+alias tf="terraform"
+alias d="doctl"
+alias h="$HOME/bin/htotheizzo.sh"
 export skip_gem=1
 
-alias d="doctl"
+# ── Ghcup (Haskell) ──────────────────────────────────────────────────
+[ -f "$HOME/.ghcup/env" ] && source "$HOME/.ghcup/env"
 
-# Pnpm Stuff
+# ── Local env/secrets (not in git) ───────────────────────────────────
+[ -f "$HOME/.env.local" ] && source "$HOME/.env.local"
 
-export PNPM_HOME="$HOME/.local/share/pnpm"
-case ":$PATH:" in
-  *":$PNPM_HOME:"*) ;;
-  *) export PATH="$PNPM_HOME:$PATH" ;;
-esac
-# pnpm end
-
-# Set your preferred python version.
-# If you just want the latest release, you don't need to
-# specify anything more than the major version number.
-export PYENV_VERSION=3
-
-# Tell pyenv where to keep your python installations.
-export PYENV_ROOT=~/.pyenv
-
-# Tell pipx where to install executables.
-# pipx is like brew, but for python.
-export PIPX_BIN_DIR=~/.local/bin
-
-# -U eliminates duplicates.
-export -U PATH path
-path=(
-  $PIPX_BIN_DIR
-  $PYENV_ROOT/{bin,shims}
-  $path
-)
-
-# Installs/updates pipenv and all of its dependencies.
+# ── Pyenv/Pipenv helper ──────────────────────────────────────────────
 pybake() {
-  # If any commands fail, exit the function.
   setopt LOCAL_OPTIONS ERR_RETURN
-
-  # We use a namespace prefix in our function's name to make sure we 
-  # don't accidentally overwrite another function with the same name.
   .pybake.install-or-upgrade() {
-    if command -v $1 &>/dev/null; then
-      print -n "upgrade $1"
-    else
-      print -n "install $1"
+    if command -v $1 &>/dev/null; then print -n "upgrade $1"
+    else print -n "install $1"
     fi
   }
-
-  # A trap on EXIT set inside a function is executed after the function 
-  # completes in the environment of the caller. See
-  # https://zsh.sourceforge.io/Doc/Release/Functions.html
   trap "unfunction .pybake.install-or-upgrade" EXIT
-
   brew $( .pybake.install-or-upgrade pyenv )
   pyenv install --skip-existing $PYENV_VERSION
   pip install --upgrade pip
-
-  # `--user` installs to ~/.local/bin
   pip install --upgrade --user pipx
-
   pipx $( .pybake.install-or-upgrade pipenv )
 }
-
-# source $HOME/.profile
-
-export PATH="$PATH:$HOME/bin"
-
-export CPATH="/opt/homebrew/include"
-export C_INCLUDE_PATH="/opt/homebrew/include"
-
-# Load API keys from separate env file (not tracked in git)
-[ -f "$HOME/.env.local" ] && source "$HOME/.env.local"
-
-alias up="~/bin/.htotheizzo/htotheizzo-gui.sh"
-export ANDROID_HOME="/opt/homebrew/share/android-commandlinetools"
-export PATH="$ANDROID_HOME/cmdline-tools/latest/bin:$PATH"
-
-PATH="$HOME/perl5/bin${PATH:+:${PATH}}"; export PATH;
-PERL5LIB="$HOME/perl5/lib/perl5${PERL5LIB:+:${PERL5LIB}}"; export PERL5LIB;
-PERL_LOCAL_LIB_ROOT="$HOME/perl5${PERL_LOCAL_LIB_ROOT:+:${PERL_LOCAL_LIB_ROOT}}"; export PERL_LOCAL_LIB_ROOT;
-PERL_MB_OPT="--install_base \"$HOME/perl5\""; export PERL_MB_OPT;
-PERL_MM_OPT="INSTALL_BASE=$HOME/perl5"; export PERL_MM_OPT;
-export PATH="/opt/homebrew/opt/openjdk@17/bin:$PATH"
