@@ -3,9 +3,11 @@ export ZSH="$HOME/.oh-my-zsh"
 # See https://github.com/ohmyzsh/ohmyzsh/wiki/Themes
 ZSH_THEME="robbyrussell"
 
-plugins=(git aws cp docker docker-compose github golang helm jira kubectl minikube npm node python rsync screen ssh-agent sudo svn terraform pipenv vscode yarn)
+plugins=(git aws docker docker-compose github golang helm jira kubectl minikube npm node python rsync screen ssh-agent sudo svn terraform pipenv vscode yarn)
 SHOW_AWS_PROMPT=false
 export AWS_PAGER=""
+
+fpath+=("$(brew --prefix eza)/share/zsh/site-functions")
 
 source $ZSH/oh-my-zsh.sh
 
@@ -13,7 +15,7 @@ alias tf="terraform"
 
 alias docker-prune="docker system prune -af && docker image prune -af && docker volume prune -f && df -h"
 alias docker-clean="docker container prune -f && docker image prune -af && docker volume prune -f && docker network prune -f && df -h"
-alias dc="docker-compose"
+alias dc="docker compose"
 alias dc-restart="dc down && dc up --build -d && dc logs -f"
 
 export EDITOR="$HOME/bin/code-wait"
@@ -41,6 +43,7 @@ export HOMEBREW_AUTO_UPDATE_SECS=1200
 export HOMEBREW_NO_ENV_HINTS=1
 
 alias g="git"
+alias h="$HOME/bin/htotheizzo.sh"
 
 # export LLM_MODEL=gemini-2.0-flash
 export LLM_MODEL=claude-4-sonnet
@@ -95,12 +98,17 @@ export BUN_INSTALL="$HOME/.bun"
 export PATH="$BUN_INSTALL/bin:$PATH"
 
 alias exa="eza"
-alias ls="exa --icons"
-alias ll="exa -l --icons"
-alias la="exa -a --icons"
-alias l="exa -l --icons"
-alias ld="exa -l -d --icons"
-alias lt="exa -l -t --icons"
+# In .zshrc — add --no-quotes and disable eza's broken completion function
+alias ls="eza --icons --no-quotes"
+alias ll="eza --icons --no-quotes -l"
+alias la="eza --icons --no-quotes -a"
+alias l="eza --icons --no-quotes -l"
+alias ld="eza --icons --no-quotes -l -d"
+alias lt="eza --icons --no-quotes -l -t"
+
+# After the source oh-my-zsh.sh line, disable eza's completion function
+# so zsh uses generic file completion instead (which works correctly)
+compdef -d eza
 
 export skip_gem=1
 
