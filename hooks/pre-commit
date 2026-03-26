@@ -1,0 +1,32 @@
+#!/usr/bin/env bash
+# Pre-commit hook: block commits that look like they contain secrets.
+# Installed to .git/hooks/pre-commit by install.sh
+
+set -euo pipefail
+
+# Pattern covers common secret variable names followed by an assignment or colon
+# shellcheck disable=SC2016  # single quotes intentional: $ is a regex literal, not a variable
+PATTERN='(api[_-]key|secret[_-]key|access[_-]key|private[_-]key|auth[_-]token|client[_-]secret)[[:space:]]*[:=][[:space:]]*[^$({[<]'
+
+STAGED=$(git diff --cached --name-only --diff-filter=ACM 2>/dev/null) || true
+[ -z "$STAGED" ] && exit 0
+
+FOUND=0
+while IFS= read -r file; do
+  # Skip binary files and known-safe patterns (template files, test fixtures)
+  [[ "$file" == *.template ]] && continue
+  [[ "$file" == *.example ]]  && continue
+
+  if git show ":$file" 2>/dev/null | grep -Ei "$PATTERN" >/dev/null; then
+    echo "[pre-commit] Possible secret detected in: $file"
+    git show ":$file" | grep -nEi "$PATTERN" | head -3 | sed 's/^/  /'
+    FOUND=$((FOUND + 1))
+  fi
+done <<< "$STAGED"
+
+if [ "$FOUND" -gt 0 ]; then
+  echo ""
+  echo "Commit blocked: $FOUND file(s) may contain secrets."
+  echo "If this is intentional: git commit --no-verify"
+  exit 1
+fi

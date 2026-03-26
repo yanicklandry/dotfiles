@@ -1,3 +1,6 @@
+# Uncomment the next line to profile shell startup — run `zprof` after sourcing
+# zmodload zsh/zprof
+
 export ZSH="$HOME/.oh-my-zsh"
 ZSH_THEME="robbyrussell"
 
@@ -7,7 +10,7 @@ export AWS_PAGER=""
 
 # Brew — must come before oh-my-zsh so paths/fpath are available
 eval "$(brew shellenv)"
-fpath+=("$(brew --prefix eza)/share/zsh/site-functions")
+fpath+=("$HOMEBREW_PREFIX/opt/eza/share/zsh/site-functions")
 
 source $ZSH/oh-my-zsh.sh
 
@@ -27,9 +30,24 @@ export HOMEBREW_NO_ENV_HINTS=1
 
 # ── NVM ──────────────────────────────────────────────────────────────
 export NVM_DIR="$HOME/.nvm"
-[ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
-[ -s "$NVM_DIR/bash_completion" ] && \. "$NVM_DIR/bash_completion"
-autoload -U add-zsh-hook
+# Lazy-load nvm — avoids ~300ms startup cost; loads on first use of node/npm/npx/nvm
+_nvm_load() {
+  [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
+  [ -s "$NVM_DIR/bash_completion" ] && \. "$NVM_DIR/bash_completion"
+}
+nvm()  { unfunction nvm node npm npx; _nvm_load; nvm  "$@" }
+node() { unfunction nvm node npm npx; _nvm_load; node "$@" }
+npm()  { unfunction nvm node npm npx; _nvm_load; npm  "$@" }
+npx()  { unfunction nvm node npm npx; _nvm_load; npx  "$@" }
+
+# Auto-switch Node version when entering a directory with .nvmrc
+_nvm_auto_use() {
+  [[ -f .nvmrc ]] || return 0
+  # If the nvm stub is still in place, load the real nvm first
+  type nvm | grep -q '_nvm_load' && _nvm_load
+  nvm use --silent
+}
+add-zsh-hook chpwd _nvm_auto_use
 
 # ── Bun ──────────────────────────────────────────────────────────────
 export BUN_INSTALL="$HOME/.bun"
@@ -40,8 +58,8 @@ export PNPM_HOME="$HOME/.local/share/pnpm"
 
 # ── Python / Pyenv / Pipx ────────────────────────────────────────────
 export PYENV_VERSION=3
-export PYENV_ROOT=~/.pyenv
-export PIPX_BIN_DIR=~/.local/bin
+export PYENV_ROOT=$HOME/.pyenv
+export PIPX_BIN_DIR=$HOME/.local/bin
 
 # ── Java ─────────────────────────────────────────────────────────────
 export CPPFLAGS="-I/opt/homebrew/opt/openjdk@17/include"
@@ -82,22 +100,27 @@ fi
 
 # ── Aliases: Git ─────────────────────────────────────────────────────
 alias g="git"
-export LLM_MODEL=claude-sonnet-4-6
-alias gc='git commit -m "$( (git diff --staged --stat && echo "---" && git diff --staged -- ":(exclude)package-lock.json" ":(exclude)pnpm-lock.yaml" ":(exclude)yarn.lock" ":(exclude)*.lock" | head -n 5000) | llm -m $LLM_MODEL -s "write a conventional commit message (feat/fix/docs/style/refactor) with scope. Output ONLY the commit message text - no markdown, no backticks, no code blocks, just the plain commit message")" -e'
+export LLM_MODEL=claude-4-sonnet
+function gcg {
+  if git diff --cached --quiet; then
+    echo "nothing staged" >&2; return 1
+  fi
+  local msg
+  msg="$( (git diff --staged --stat && echo "---" && git diff --staged -- ":(exclude)package-lock.json" ":(exclude)pnpm-lock.yaml" ":(exclude)yarn.lock" ":(exclude)*.lock" | head -n 5000) | llm -m $LLM_MODEL -s "write a conventional commit message (feat/fix/docs/style/refactor) with scope. Output ONLY the commit message text - no markdown, no backticks, no code blocks, just the plain commit message")"
+  echo "$msg"
+  git commit -m "$msg" -e
+}
 
 # ── Aliases: Docker ──────────────────────────────────────────────────
 alias dc="docker compose"
 alias dc-restart="dc down && dc up --build -d && dc logs -f"
-alias docker-prune="docker system prune -af && docker image prune -af && docker volume prune -f && df -h"
+alias docker-prune="docker system prune -af && docker volume prune -f && df -h"
 alias docker-clean="docker container prune -f && docker image prune -af && docker volume prune -f && docker network prune -f && df -h"
 
 # ── Aliases: eza (ls) ────────────────────────────────────────────────
-alias ls="eza --icons --no-quotes"
-alias ll="eza --icons --no-quotes -l"
-alias la="eza --icons --no-quotes -a"
-alias l="eza --icons --no-quotes -l"
-alias ld="eza --icons --no-quotes -l -d"
-alias lt="eza --icons --no-quotes -l -t"
+_EZA="eza --icons --no-quotes"
+alias ls="$_EZA" ll="$_EZA -l" la="$_EZA -a" l="$_EZA -l" ld="$_EZA -l -d" lt="$_EZA -l -t"
+unset _EZA
 
 # ── Aliases: Misc ────────────────────────────────────────────────────
 alias tf="terraform"
@@ -111,6 +134,10 @@ export skip_gem=1
 # ── Local env/secrets (not in git) ───────────────────────────────────
 [ -f "$HOME/.env.local" ] && source "$HOME/.env.local"
 
+# ── Dev / Profiling ──────────────────────────────────────────────────
+alias zsh-bench="time zsh -i -c exit"
+# zprof  # uncomment this line (and zmodload at top) to print startup profile
+
 # ── Pyenv/Pipenv helper ──────────────────────────────────────────────
 pybake() {
   setopt LOCAL_OPTIONS ERR_RETURN
@@ -121,7 +148,7 @@ pybake() {
   }
   trap "unfunction .pybake.install-or-upgrade" EXIT
   brew $( .pybake.install-or-upgrade pyenv )
-  pyenv install --skip-existing $PYENV_VERSION
+  pyenv install --skip-existing "$(pyenv latest "$PYENV_VERSION" 2>/dev/null || echo "$PYENV_VERSION")"
   pip install --upgrade pip
   pip install --upgrade --user pipx
   pipx $( .pybake.install-or-upgrade pipenv )

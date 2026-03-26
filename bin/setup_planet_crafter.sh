@@ -46,5 +46,5 @@ echo "=== IMPORTANT ==="
 echo "Keep graphics on Medium for MacBook Air, High for MacBook Pro"
 echo ""
 
-read -p "Press Enter to open Whisky..."
+read -rp "Press Enter to open Whisky..."
 open -a Whisky
