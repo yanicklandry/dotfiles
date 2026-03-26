@@ -7,7 +7,7 @@ echo "Available bottles:"
 ls -1 "$WHISKY_BOTTLES"
 echo ""
 
-read -p "Enter your bottle name: " BOTTLE_NAME
+read -rp "Enter your bottle name: " BOTTLE_NAME
 
 STEAM_PATH="$WHISKY_BOTTLES/$BOTTLE_NAME/drive_c/Program Files (x86)/Steam"
 
@@ -16,7 +16,7 @@ if [ ! -d "$STEAM_PATH" ]; then
     exit 1
 fi
 
-cd "$STEAM_PATH"
+cd "$STEAM_PATH" || exit 1
 
 echo "Deleting Steam web cache..."
 rm -rf appcache

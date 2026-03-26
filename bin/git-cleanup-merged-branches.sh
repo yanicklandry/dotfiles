@@ -2,9 +2,13 @@
 
 # Script to delete local branches whose remote tracking branches have been deleted
 # This happens after PRs are merged and remote branches are deleted
-# Usage: ./scripts/cleanup-merged-branches.sh
+# Usage: ./git-cleanup-merged-branches.sh [--dry-run]
 
 set -e
+
+DRY_RUN=false
+[[ "${1:-}" == "--dry-run" ]] && DRY_RUN=true
+$DRY_RUN && echo "[dry-run] no branches will be deleted" && echo
 
 # Colors for output
 RED='\033[0;31m'
@@ -35,7 +39,7 @@ if [ -z "$BRANCHES_TO_DELETE" ]; then
 fi
 
 echo -e "${YELLOW}Branches with deleted remotes:${NC}"
-echo "$BRANCHES_TO_DELETE" | while read branch; do
+echo "$BRANCHES_TO_DELETE" | while IFS= read -r branch; do
     echo "  - $branch"
 done
 echo ""
@@ -55,7 +59,7 @@ done <<< "$BRANCHES_TO_DELETE"
 # Show skipped protected branches if any
 if [ -n "$SKIPPED_BRANCHES" ]; then
     echo -e "${YELLOW}⚠️  Skipping protected branches:${NC}"
-    echo "$SKIPPED_BRANCHES" | tr ' ' '\n' | grep -v '^$' | while read branch; do
+    echo "$SKIPPED_BRANCHES" | tr ' ' '\n' | grep -v '^$' | while IFS= read -r branch; do
         echo "  - $branch"
     done
     echo ""
@@ -74,7 +78,7 @@ while IFS= read -r branch; do
         WILL_DELETE_CURRENT=true
         break
     fi
-done <<< "$(echo $FILTERED_BRANCHES | tr ' ' '\n' | grep -v '^$')"
+done <<< "$(echo "$FILTERED_BRANCHES" | tr ' ' '\n' | grep -v '^$')"
 
 if [ "$WILL_DELETE_CURRENT" = true ]; then
     echo -e "${YELLOW}Current branch will be deleted. Switching to staging...${NC}"
@@ -100,8 +104,11 @@ FAILED_COUNT=0
 FAILED_BRANCHES=""
 
 echo -e "${YELLOW}Deleting branches...${NC}"
-echo "$FILTERED_BRANCHES" | tr ' ' '\n' | grep -v '^$' | while read branch; do
-    if git branch -d "$branch" 2>&1; then
+while IFS= read -r branch; do
+    if $DRY_RUN; then
+        echo -e "  ${YELLOW}[dry-run]${NC} Would delete: $branch"
+        DELETED_COUNT=$((DELETED_COUNT + 1))
+    elif git branch -d "$branch" 2>&1; then
         echo -e "  ${GREEN}✓${NC} Deleted: $branch"
         DELETED_COUNT=$((DELETED_COUNT + 1))
     else
@@ -109,7 +116,7 @@ echo "$FILTERED_BRANCHES" | tr ' ' '\n' | grep -v '^$' | while read branch; do
         FAILED_COUNT=$((FAILED_COUNT + 1))
         FAILED_BRANCHES="$FAILED_BRANCHES $branch"
     fi
-done
+done < <(echo "$FILTERED_BRANCHES" | tr ' ' '\n' | grep -v '^$')
 
 echo ""
 echo -e "${GREEN}✅ Cleanup complete!${NC}"
@@ -118,12 +125,12 @@ echo -e "${GREEN}✅ Cleanup complete!${NC}"
 if [ -n "$FAILED_BRANCHES" ]; then
     echo ""
     echo -e "${YELLOW}⚠️  Some branches could not be deleted (not fully merged):${NC}"
-    echo "$FAILED_BRANCHES" | tr ' ' '\n' | grep -v '^$' | while read branch; do
+    echo "$FAILED_BRANCHES" | tr ' ' '\n' | grep -v '^$' | while IFS= read -r branch; do
         echo "  - $branch"
     done
     echo ""
     echo -e "${BLUE}To force delete these branches, run:${NC}"
-    echo "$FAILED_BRANCHES" | tr ' ' '\n' | grep -v '^$' | while read branch; do
+    echo "$FAILED_BRANCHES" | tr ' ' '\n' | grep -v '^$' | while IFS= read -r branch; do
         echo "  git branch -D $branch"
     done
 fi

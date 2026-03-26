@@ -1,6 +1,7 @@
 # Ignore files with sensitive environment variables
 .env
 .env.*
+!.env.local.template
 
 # Ignore OS files
 .DS_Store
