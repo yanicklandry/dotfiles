@@ -6,6 +6,9 @@
 # Ignore OS files
 .DS_Store
 
+# Brewfile lockfile is machine-specific
+Brewfile.lock.json
+
 # Ignore any files containing secrets or API keys
 *secret*
 *credential*
