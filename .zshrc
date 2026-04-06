@@ -4,7 +4,7 @@
 export ZSH="$HOME/.oh-my-zsh"
 ZSH_THEME="robbyrussell"
 
-plugins=(git aws docker docker-compose github golang helm jira kubectl minikube npm node python rsync screen ssh-agent sudo svn terraform pipenv vscode yarn)
+plugins=(git aws docker docker-compose github golang helm jira kubectl minikube npm node python rsync screen ssh-agent sudo svn terraform vscode yarn)
 SHOW_AWS_PROMPT=false
 export AWS_PAGER=""
 
