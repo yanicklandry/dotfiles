@@ -50,15 +50,10 @@ _link "$REPO_DIR/.zprofile" "$HOME/.zprofile"
 _link "$REPO_DIR/.gitconfig" "$HOME/.gitconfig"
 _link "$REPO_DIR/.jshintrc" "$HOME/.jshintrc"
 
-# ── .env.local from template ──────────────────────────────────────────────────
+# ── .env.local ────────────────────────────────────────────────────────────────
 echo
-echo "Secrets template:"
-if [ ! -f "$HOME/.env.local" ]; then
-  echo "  [copy]   ~/.env.local (from template — fill in your API keys)"
-  $DRY || cp "$REPO_DIR/.env.local.template" "$HOME/.env.local"
-else
-  echo "  [ok]     ~/.env.local already exists"
-fi
+echo "Secrets:"
+_link "$REPO_DIR/.env.local" "$HOME/.env.local"
 
 # ── ~/bin ─────────────────────────────────────────────────────────────────────
 echo
@@ -88,6 +83,14 @@ if [ -d "$REPO_DIR/.git" ]; then
 else
   echo "  [skip]   not inside a git repo"
 fi
+
+# ── Claude config ─────────────────────────────────────────────────────────────
+echo
+echo "Claude:"
+_link "$REPO_DIR/claude/CLAUDE.md"      "$HOME/.claude/CLAUDE.md"
+_link "$REPO_DIR/claude/settings.json"  "$HOME/.claude/settings.json"
+_link "$REPO_DIR/claude/hooks"          "$HOME/.claude/hooks"
+_link "$REPO_DIR/claude/commands"       "$HOME/.claude/commands"
 
 # ── Done ──────────────────────────────────────────────────────────────────────
 echo
