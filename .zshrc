@@ -153,3 +153,9 @@ pybake() {
   pip install --upgrade --user pipx
   pipx $( .pybake.install-or-upgrade pipenv )
 }
+
+# opencode
+export PATH=$HOME/.opencode/bin:$PATH
+
+# LM Studio CLI (lms)
+export PATH="$PATH:$HOME/.lmstudio/bin"
