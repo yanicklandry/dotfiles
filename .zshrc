@@ -163,15 +163,3 @@ export PATH=$HOME/.opencode/bin:$PATH
 # LM Studio CLI (lms)
 export PATH="$PATH:$HOME/.lmstudio/bin"
 export BASH_MAX_OUTPUT_LENGTH=15000
-
-# lean-ctx shell hook — begin
-if [ -f "/Users/yanick/.config/lean-ctx/shell-hook.zsh" ]; then
-. "/Users/yanick/.config/lean-ctx/shell-hook.zsh"
-fi
-# lean-ctx shell hook — end
-
-# >>> lean-ctx agent aliases >>>
-alias claude='LEAN_CTX_AGENT=1 BASH_ENV="$HOME/.bashenv" claude'
-alias codex='LEAN_CTX_AGENT=1 BASH_ENV="$HOME/.bashenv" codex'
-alias gemini='LEAN_CTX_AGENT=1 BASH_ENV="$HOME/.bashenv" gemini'
-# <<< lean-ctx agent aliases <<<
