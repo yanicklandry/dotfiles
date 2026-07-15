@@ -51,9 +51,18 @@ _link "$REPO_DIR/.gitconfig" "$HOME/.gitconfig"
 _link "$REPO_DIR/.jshintrc" "$HOME/.jshintrc"
 
 # ── .env.local ────────────────────────────────────────────────────────────────
+# .env.local holds secrets and is gitignored, so it never exists on a fresh
+# clone. Seed it from the template (a real file, not a symlink) if missing.
 echo
 echo "Secrets:"
-_link "$REPO_DIR/.env.local" "$HOME/.env.local"
+if [ -f "$HOME/.env.local" ]; then
+  echo "  [ok]     ~/.env.local already exists"
+elif $DRY; then
+  echo "  [copy]   .env.local.template -> ~/.env.local (then edit to add your keys)"
+else
+  cp "$REPO_DIR/.env.local.template" "$HOME/.env.local"
+  echo "  [copy]   .env.local.template -> ~/.env.local (edit it to add your keys)"
+fi
 
 # ── ~/bin ─────────────────────────────────────────────────────────────────────
 echo
@@ -91,6 +100,20 @@ _link "$REPO_DIR/claude/CLAUDE.md"      "$HOME/.claude/CLAUDE.md"
 _link "$REPO_DIR/claude/settings.json"  "$HOME/.claude/settings.json"
 _link "$REPO_DIR/claude/hooks"          "$HOME/.claude/hooks"
 _link "$REPO_DIR/claude/commands"       "$HOME/.claude/commands"
+
+# ── Homebrew packages ─────────────────────────────────────────────────────────
+echo
+echo "Homebrew:"
+if command -v brew >/dev/null 2>&1; then
+  if $DRY; then
+    echo "  [brew]   would run: brew bundle --file '$REPO_DIR/Brewfile'"
+  else
+    echo "  [brew]   brew bundle --file '$REPO_DIR/Brewfile'"
+    brew bundle --file "$REPO_DIR/Brewfile" || echo "  [warn]   brew bundle reported errors (continuing)"
+  fi
+else
+  echo "  [skip]   brew not found — install Homebrew first (see README)"
+fi
 
 # ── Done ──────────────────────────────────────────────────────────────────────
 echo

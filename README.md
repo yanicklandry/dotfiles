@@ -29,17 +29,29 @@ Install these before sourcing `.zshrc`:
 | [pyenv](https://github.com/pyenv/pyenv) | Python version manager | `brew install pyenv` |
 | [bun](https://bun.sh) | JS runtime | `curl -fsSL https://bun.sh/install \| bash` |
 
+## Homebrew packages
+
+All GUI apps and CLI tools are captured in the `Brewfile`. Reinstall them with:
+
+```sh
+brew bundle --file ~/dotfiles/Brewfile
+```
+
+`install.sh -y` runs this automatically. Regenerate the list after installing
+new packages with `brew bundle dump --force --file ~/dotfiles/Brewfile`.
+
 ## Secrets
 
 Copy `.env.local.template` to `~/.env.local` and fill in your API keys.
-`install.sh` does this automatically if `~/.env.local` doesn't exist yet.
+`install.sh` seeds `~/.env.local` from the template automatically if it doesn't
+exist yet (as a real file, never a symlink — the actual secrets stay out of git).
 `~/.env.local` is sourced at the end of `.zshrc` and is never committed.
 
 ## Key aliases
 
 | Alias / Function | Description |
 |---|---|
-| `gc` | AI-generated conventional commit message via `llm`, opens editor to confirm |
+| `gcg` | AI-generated conventional commit message via `llm`, opens editor to confirm |
 | `g` | `git` |
 | `dc` | `docker compose` |
 | `dc-restart` | rebuild and follow logs |

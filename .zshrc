@@ -163,3 +163,6 @@ export PATH=$HOME/.opencode/bin:$PATH
 # LM Studio CLI (lms)
 export PATH="$PATH:$HOME/.lmstudio/bin"
 export BASH_MAX_OUTPUT_LENGTH=15000
+
+# bun completions
+[ -s "/Users/yanick/.bun/_bun" ] && source "/Users/yanick/.bun/_bun"

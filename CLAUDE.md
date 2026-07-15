@@ -18,7 +18,7 @@ Personal macOS dotfiles and utility scripts for Yanick Landry. No build system, 
 ## Key environment details (.zshrc)
 
 - **Editor**: `$HOME/bin/code-wait` (VS Code with `-w` flag)
-- **LLM**: `$LLM_MODEL=claude-sonnet-4-6`; the `gc` alias auto-generates conventional commit messages using `llm` CLI from staged diff
+- **LLM**: `$LLM_MODEL=claude-sonnet-4.6`; the `gcg` function auto-generates conventional commit messages using `llm` CLI from the staged diff (auto-prefixes the ticket number parsed from the branch name)
 - **Node**: nvm manages Node versions; bun and pnpm also available
 - **Python**: pyenv + pipx; `pybake` shell function bootstraps pyenv/pipenv via Homebrew
 - **Java**: OpenJDK 17 via Homebrew at `/opt/homebrew/opt/openjdk@17`

@@ -1,6 +1,9 @@
 {
   "permissions": {
     "allow": [
+      "Write",
+      "Edit",
+      "MultiEdit",
       "Bash(date:*)",
       "Bash(echo:*)",
       "Bash(cat:*)",
@@ -31,12 +34,15 @@
       "Bash(chmod -R 777 /:*)"
     ]
   },
+  "model": "opus",
+  "effortLevel": "medium",
+  "tui": "fullscreen",
+  "inputNeededNotifEnabled": true,
+  "agentPushNotifEnabled": true,
   "enabledPlugins": {
+    "clangd-lsp@claude-plugins-official": true,
     "compound-engineering@every-marketplace": true,
     "figma@claude-plugins-official": true
-  },
-  "feedbackSurveyState": {
-    "lastShownTime": 1754059761634
   },
   "hooks": {
     "Notification": [
