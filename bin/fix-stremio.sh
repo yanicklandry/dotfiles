@@ -14,4 +14,4 @@ find /Applications/Stremio.app -name "._*" -delete
 find /Applications/Stremio.app -name ".DS_Store" -delete
 sudo codesign --force --deep --sign - /Applications/Stremio.app
 
-open /Applications/Stremio.app/Contents/MacOS/Stremio --webui-url="https://app.strem.io/shell-v4.4/#?loginFlow=desktop"
+open /Applications/Stremio.app/Contents/MacOS/Stremio
