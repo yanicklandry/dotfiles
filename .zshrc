@@ -109,7 +109,7 @@ function gcg {
   branch="$(git rev-parse --abbrev-ref HEAD 2>/dev/null)"
   ticket="$(echo "$branch" | grep -oE '[0-9]{3,}' | head -1)"
   ticket_prefix="${ticket:+#${ticket} }"
-  msg="$( (git diff --staged --stat && echo "---" && git diff --staged -- ":(exclude)package-lock.json" ":(exclude)pnpm-lock.yaml" ":(exclude)yarn.lock" ":(exclude)*.lock" | head -n 5000) | llm -m $LLM_MODEL -s "Write a conventional commit message (feat/fix/docs/style/refactor) with scope. Prefix the message with '${ticket_prefix}'. Output ONLY the commit message text - no markdown, no backticks, no code blocks, just the plain commit message")"
+  msg="$( (git diff --staged --stat && echo "---" && git diff --staged -- ":(exclude)package-lock.json" ":(exclude)pnpm-lock.yaml" ":(exclude)yarn.lock" ":(exclude)*.lock" | head -n 5000) | claude -p --model "${GCG_MODEL:-sonnet}" "Below is a staged git diff. Write a conventional commit message (feat/fix/docs/style/refactor) with scope. Prefix the message with '${ticket_prefix}'. Output ONLY the commit message text - no markdown, no backticks, no code blocks, just the plain commit message" 2>/dev/null)"
   echo "$msg"
   git commit -m "$msg" -e
 }
