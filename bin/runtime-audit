@@ -852,7 +852,7 @@ def apply_steps(steps, assume_yes):
         for c_ in s.comments:
             print("    " + (yellow(c_) if c_.startswith("WARNING") else dim(c_)))
         for c_ in s.cmds:
-            print(dim("    $ " + c_))
+            print(dim("    $ " + c_.replace("\n", "\n      ")))
         force = s.kind == "upgrade"
         a = ask("    Run? [y/N/q] (upgrades always ask) " if force else "    Run? [y/N/a/q] ", state, force)
         if a == "q":
