@@ -33,7 +33,7 @@ Personal macOS dotfiles and utility scripts for Yanick Landry. No build system, 
 | `vpn_check.sh` | Checks for active VPN via `utun`/`pptp`/`l2tp` interfaces |
 | `git-cleanup-merged-branches.sh` | Deletes local branches whose remotes are gone; skips `master`, `main`, `staging`, `develop` |
 | `dep-cleanup.sh` | Lists first-level `node_modules`/`.venv` dirs by size and age, interactively deletes picked ones (`--dry-run`, `--list`) |
-| `runtime-audit` | Python (stdlib). Maps which nvm Node / pyenv Python versions each project, venv and config uses; plans migrate-within-major/minor + delete; `--apply` runs it step by step with checks and rollback, `--write FILE` saves the commands |
+| `runtime-audit` | Python (stdlib). Maps which nvm Node / pyenv Python versions each project, venv and config uses; plans migrate-within-major/minor + delete, EOL upgrades, and repointing hardcoded paths in LaunchAgents/app configs; `--apply` runs it step by step with checks and rollback (upgrades/config steps always ask), `--write FILE` saves the commands |
 | `fix-stremio.sh` | Reinstalls Stremio and re-signs the app bundle |
 | `create_timestamp_folder.sh` | Creates a timestamped directory |
 
