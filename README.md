@@ -68,6 +68,7 @@ exist yet (as a real file, never a symlink — the actual secrets stay out of gi
 | `code-wait` | `code -w` wrapper — opens VS Code and waits |
 | `vpn_check.sh` | Detects active VPN via routing table |
 | `git-cleanup-merged-branches.sh` | Deletes local branches whose remotes are gone |
+| `dep-cleanup.sh` | Find and interactively delete first-level `node_modules` and `.venv` dirs |
 | `brew-size.sh` | Lists Homebrew packages sorted by disk usage |
 | `fix-stremio.sh` | Reinstalls and re-signs Stremio (macOS) |
 | `restart_whisky.sh` | Clears Steam cache inside a Whisky bottle (macOS) |

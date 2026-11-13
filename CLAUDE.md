@@ -32,6 +32,7 @@ Personal macOS dotfiles and utility scripts for Yanick Landry. No build system, 
 | `dfs` | Simplified `df -h` showing only relevant macOS volumes |
 | `vpn_check.sh` | Checks for active VPN via `utun`/`pptp`/`l2tp` interfaces |
 | `git-cleanup-merged-branches.sh` | Deletes local branches whose remotes are gone; skips `master`, `main`, `staging`, `develop` |
+| `dep-cleanup.sh` | Lists first-level `node_modules`/`.venv` dirs by size and age, interactively deletes picked ones (`--dry-run`, `--list`) |
 | `fix-stremio.sh` | Reinstalls Stremio and re-signs the app bundle |
 | `create_timestamp_folder.sh` | Creates a timestamped directory |
 
