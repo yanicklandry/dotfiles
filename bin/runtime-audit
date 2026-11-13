@@ -26,8 +26,12 @@ Rules used for the plan:
     jumping majors/minors can break things.
 Uses: .nvmrc, .node-version, .tool-versions, package.json volta, .python-version,
 virtualenvs (any dir with pyvenv.cfg, plus pipenv envs), pyenv-virtualenv envs.
-Also keeps any version hardcoded in LaunchAgents, Claude/Cursor/VS Code/Codex
-configs, shell rc files, crontab and ~/.local/bin or ~/bin shebangs.
+Also finds versions hardcoded in LaunchAgents, Claude/Cursor/VS Code/Codex
+configs, shell rc files, crontab and ~/.local/bin or ~/bin shebangs. Plists,
+JSON/TOML/YAML and rc files can be repointed by a "config" step (always asks,
+validates, reloads LaunchAgents, rolls back on failure); shebangs and crontab
+are never edited, so versions they use are always kept. Configs pointing at a
+version that is not installed get a repair step too.
 Informational only: package.json engines, requires-python, Pipfile python_version.
 """
 import json
@@ -180,6 +184,13 @@ def installed_node():
                                   if not s.startswith(".")]  # npm leftovers
                 elif p not in ("npm", "corepack") and not p.startswith("."):
                     v.globals.append(p)
+            v.global_specs = []  # name@version, so a reinstall keeps the same versions
+            for g in v.globals:
+                try:
+                    ver = json.loads(read(os.path.join(nm, g, "package.json")) or "{}").get("version")
+                except ValueError:
+                    ver = None
+                v.global_specs.append("%s@%s" % (g, ver) if ver else g)
             out.append(v)
     return out
 
@@ -239,7 +250,8 @@ class Dep:
         if self.kind == "pyenv-venv":
             return "pyenv-virtualenv %s" % self.spec
         if self.kind == "external":
-            return "hardcoded path (config/service)"
+            return "hardcoded path (%s)" % ("config/service" if getattr(self, "rewritable", False)
+                                            else "script/crontab, never edited")
         s = '%s "%s"' % (self.src, self.spec)
         if self.kind == "alias" and self.resolved:
             s += " => %s" % self.resolved.name
@@ -402,6 +414,18 @@ EXT_DIRS = [("Library/LaunchAgents", 1), ("Library/Application Support/Claude", 
 EXT_RE = {"node": re.compile(r"\.nvm/versions/node/(v\d+\.\d+\.\d+)"),
           "python": re.compile(r"\.pyenv/versions/(\d+\.\d+\.\d+)")}
 
+RC_FILES = (".zshrc", ".zprofile", ".zshenv", ".bashrc", ".bash_profile", ".profile")
+EXT_BASE = {"node": "/.nvm/versions/node/", "python": "/.pyenv/versions/"}
+
+def rewritable(f):
+    """Text configs we can safely edit. Never shebang scripts or crontab."""
+    if f == "crontab":
+        return False
+    rel = f[len(HOME) + 1:] if f.startswith(HOME + "/") else f
+    if rel.startswith((".local/bin/", "bin/")):
+        return False
+    return f.endswith((".plist", ".json", ".toml", ".yaml", ".yml")) or os.path.basename(f) in RC_FILES
+
 def scan_external(node_inst, py_inst):
     """Deps for interpreter paths hardcoded in configs/services, plus dangling ones."""
     files = [os.path.join(HOME, f) for f in EXT_FILES]
@@ -439,7 +463,9 @@ def scan_external(node_inst, py_inst):
                 seen.add((f, rt, ver))
                 v = inst[rt].get(ver)
                 if v:
-                    deps.append(Dep(rt, f, f, "hardcoded", spec=ver, kind="external", resolved=v))
+                    dep = Dep(rt, f, f, "hardcoded", spec=ver, kind="external", resolved=v)
+                    dep.rewritable = rewritable(f)
+                    deps.append(dep)
                 else:
                     dangling.append((rt, f, ver))
     return deps, dangling
@@ -557,8 +583,10 @@ def plan(rt, installed, deps, defaults):
     for g in sorted(groups):
         vs = sorted(groups[g], key=lambda v: v.parts)
         gdeps = [d for d in deps if d.resolved in vs]
-        movable = [d for d in gdeps if d.kind == "venv" or (d.kind == "pin" and d.precision > glen)]
-        sticky = [d for d in gdeps if d.kind in ("alias", "pyenv-venv", "external")]
+        movable = [d for d in gdeps if d.kind == "venv" or (d.kind == "pin" and d.precision > glen)
+                   or (d.kind == "external" and getattr(d, "rewritable", False))]
+        sticky = [d for d in gdeps if d.kind in ("alias", "pyenv-venv") or
+                  (d.kind == "external" and not getattr(d, "rewritable", False))]
         floating = [d for d in gdeps if d.kind == "pin" and d.precision <= glen]
         score = {v.name: 0 for v in vs}
         for d in movable + sticky + floating:
@@ -629,6 +657,72 @@ def report(rt, installed, deps, info, unpinned, defaults, groups, other):
                   % (n, "" if n == 1 else "s", "default" if rt == "node" else "global", dflt)))
 
 
+def launch_label(f):
+    try:
+        out = subprocess.run(["plutil", "-extract", "Label", "raw", f], capture_output=True, text=True, timeout=5)
+        return out.stdout.strip() if out.returncode == 0 else None
+    except Exception:
+        return None
+
+def launch_loaded(label):
+    try:
+        return subprocess.run(["launchctl", "print", "gui/%d/%s" % (os.getuid(), label)],
+                              capture_output=True, timeout=5).returncode == 0
+    except Exception:
+        return False
+
+def ext_paths(text, rt, ver):
+    """Absolute paths in text that go through this interpreter version."""
+    rx = r"/[^\s\"'<>:=,;]*?%s%s(?:/[^\s\"'<>:,;]*)?" % (re.escape(EXT_BASE[rt]), re.escape(ver))
+    return sorted(set(m.rstrip(".)") for m in re.findall(rx, text)))
+
+def config_step(rt, f, old, new, why, requires=()):
+    """Repoint a config file from interpreter version old to new, validated, with rollback."""
+    base = EXT_BASE[rt]
+    fwd = ["sed -i '' -E %s %s" % (q(r"s#(%s)%s([^0-9.]|$)#\1%s\2#g" % (sed_escape(base), sed_escape(old), new)), q(f))]
+    com = ["CONFIG %s: %s => %s (%s)" % (tilde(f), old, new, why)]
+    if f.endswith(".plist"):
+        fwd.append("plutil -lint -s %s" % q(f))
+    elif f.endswith(".json"):
+        fwd.append("/usr/bin/python3 -m json.tool %s >/dev/null" % q(f))
+    elif os.path.basename(f) in RC_FILES:
+        fwd.append("%s -n %s" % ("zsh" if "zsh" in os.path.basename(f) else "bash", q(f)))
+    new_paths = [x.replace(base + old, base + new) for x in ext_paths(read(f), rt, old)]
+    fwd += ["test -e %s" % q(x) for x in new_paths]
+    if new_paths:
+        com.append("checks %d new path%s exist" % (len(new_paths), "" if len(new_paths) == 1 else "s"))
+    back = []
+    label = launch_label(f) if "/Library/LaunchAgents/" in f else None
+    if label and launch_loaded(label):
+        dom = '"gui/$(id -u)"'
+        reload_ = ("(launchctl bootout %s/%s 2>/dev/null || true) && sleep 1 && "
+                   "(launchctl bootstrap %s %s || { sleep 2; launchctl bootstrap %s %s; }) && "
+                   "launchctl print %s/%s >/dev/null" % (dom, q(label), dom, q(f), dom, q(f), dom, q(label)))
+        fwd.append(reload_)
+        back.append(reload_)
+        com.append("reloads LaunchAgent %s" % label)
+    elif label:
+        com.append("LaunchAgent %s is not loaded, so it is not reloaded" % label)
+    elif not os.path.basename(f) in RC_FILES:
+        com.append("restart the app that reads this file afterwards")
+    check = (lambda f=f, old=old, new=new: new in read(f) and
+             not re.search(re.escape(base + old) + r"([^0-9.]|$)", read(f)))
+    return Step(rt, "config", "%s: %s => %s" % (tilde(f), old, new),
+                [guarded(fwd, [f], back)], com, requires=requires, check=check, in_script=False)
+
+def pick_for_dangling(rt, f, ver, deps, installed):
+    """Best installed version for a config pointing at a missing one."""
+    text = read(f)
+    owners = [d for d in deps if d.rt == rt and d.kind == "pin" and d.resolved and d.project in text]
+    if owners:
+        d = max(owners, key=lambda d: len(d.project))
+        return d.resolved, "the version %s is pinned to" % tilde(d.project)
+    parts = parse_ver(ver)
+    above = [v for v in installed if v.parts > parts]
+    if above:
+        return min(above, key=lambda v: v.parts), "next installed version"
+    return (max(installed, key=lambda v: v.parts), "newest installed") if installed else (None, "")
+
 def uninstall_cmd(rt, v):
     return "nvm uninstall %s" % v.name if rt == "node" else "pyenv uninstall -f %s" % v.name
 
@@ -661,13 +755,24 @@ class Step:
         self.status = None  # ok | failed | skipped
         self.optional = kind == "upgrade"
 
-def build_steps(rt, groups, defaults):
+def build_steps(rt, groups, defaults, deps=(), installed=()):
     """Executable steps plus commented-out optional lines."""
     steps, notes, optional = [], [], []
     for grp in groups:
         gname = vstr(rt, grp["group"]) + ".x"
         t = grp["target"]
         moved_from = defaultdict(list)  # version name => migration steps
+        globals_step = {}
+        # Globals first: configs may point into a global package's folder.
+        for v in grp["deletions"]:
+            dest = t.name if t else (sorted(defaults)[0] if defaults else "")
+            if v.globals and dest:
+                gs = Step(rt, "globals", "reinstall %s's globals into %s" % (v.name, dest),
+                          ["nvm exec %s npm i -g %s" % (dest, " ".join(q(x) for x in getattr(v, "global_specs", v.globals)))],
+                          ["globals (same versions): %s" % " ".join(getattr(v, "global_specs", v.globals))],
+                          in_script=False)
+                steps.append(gs)
+                globals_step[v.name] = gs
         by_from = defaultdict(list)
         for d, _ in grp["migrations"]:
             by_from[d.resolved.name].append(d)
@@ -676,20 +781,39 @@ def build_steps(rt, groups, defaults):
             notes.append("Migrate %d use%s %s => %s%s, the most used in %s"
                          % (len(ds), "" if len(ds) == 1 else "s", frm, t.name, down, gname))
             for d in sorted(ds, key=lambda d: d.project):
+                if d.kind == "external":
+                    gs = globals_step.get(frm)
+                    st = config_step(rt, d.file, frm, t.name, "follows the %s migration" % gname,
+                                     requires=[gs] if gs else [])
+                    if gs:
+                        st.comments.append("runs only if %s's globals were reinstalled first" % frm)
+                    steps.append(st)
+                    moved_from[frm].append(st)
+                    continue
                 com = notes_for(rt, d.project)
                 com = ["[%s]" % "; ".join(com)] if com else []
                 g = git_note(d.file) if d.kind == "pin" else ""
                 if g:
                     com.append(g)
-                com += [x[2:] for x in range_warning(d, t)]
                 new = vstr(rt, t.parts[:d.precision], d.vpref)
+                cmds = migrate_cmds(d, t)
                 if d.kind == "pin":
                     check = (lambda d=d, new=new: pin_ok(d, new))
+                    pkg = os.path.join(d.project, "package.json")
+                    for r, k, spec in INFO.get(d.project, []):
+                        if r == rt and k == "engines.node" and satisfies(spec, t.parts) is False:
+                            en = engines_new(spec, t)
+                            if en:
+                                cmds = [guarded(cmds + [engines_sed(pkg, spec, en)], [d.file, pkg], [])]
+                                com.append('package.json engines.node "%s" => "%s"' % (spec, en))
+                            else:
+                                com += [x[2:] for x in range_warning(d, t)]
                 else:
+                    com += [x[2:] for x in range_warning(d, t)]
                     check = (lambda d=d, t=t: not os.path.isfile(os.path.join(d.venv, "pyvenv.cfg"))
                              or venv_python(d.venv) == t.name)
                 st = Step(rt, "migrate", "%s: %s => %s%s" % (tilde(d.project), frm, t.name, down),
-                          migrate_cmds(d, t), com, check=check)
+                          cmds, com, check=check)
                 steps.append(st)
                 moved_from[frm].append(st)
                 if rt == "node" and d.kind == "pin":
@@ -703,18 +827,23 @@ def build_steps(rt, groups, defaults):
             moved = moved_from.get(v.name, [])
             why = "after migration" if moved else "unused"
             notes.append("Delete %s (%s, %s)" % (v.name, human_kb(v.kb), why))
-            soft = []
-            if v.globals:
-                dest = t.name if t else (sorted(defaults)[0] if defaults else "")
-                if dest:
-                    gs = Step(rt, "globals", "reinstall %s's globals into %s" % (v.name, dest),
-                              ["nvm exec %s npm i -g %s" % (dest, " ".join(q(x) for x in v.globals))],
-                              ["globals: %s" % " ".join(v.globals)], in_script=False)
-                    steps.append(gs)
-                    soft.append(gs)
-            steps.append(Step(rt, "delete", "uninstall %s (%s, %s)" % (v.name, human_kb(v.kb), why),
-                              [uninstall_cmd(rt, v)], requires=moved, soft=soft, kb=v.kb,
-                              check=lambda v=v: not os.path.exists(v.path)))
+            gs = globals_step.get(v.name)
+            st = Step(rt, "delete", "uninstall %s (%s, %s)" % (v.name, human_kb(v.kb), why),
+                      [uninstall_cmd(rt, v)], requires=moved, soft=[gs] if gs else [], kb=v.kb,
+                      check=lambda v=v: not os.path.exists(v.path))
+            st.optional = any(m.kind == "config" for m in moved)
+            st.in_script = all(m.in_script for m in moved)  # never uninstall in a script whose prerequisite is commented out
+            steps.append(st)
+
+    # Configs pointing at a version that is not installed: repair them.
+    for drt, f, ver in DANGLING:
+        if drt != rt or not rewritable(f):
+            continue
+        v, why = pick_for_dangling(rt, f, ver, deps, installed)
+        if not v:
+            continue
+        notes.append("Repair %s: %s is not installed => %s (%s)" % (tilde(f), ver, v.name, why))
+        steps.append(config_step(rt, f, ver, v.name, why))
 
     # End-of-life groups still in use: cross-version upgrade steps. They always
     # ask (even with "a" / --yes), roll back on failure, and the old version is
@@ -853,8 +982,8 @@ def apply_steps(steps, assume_yes):
             print("    " + (yellow(c_) if c_.startswith("WARNING") else dim(c_)))
         for c_ in s.cmds:
             print(dim("    $ " + c_.replace("\n", "\n      ")))
-        force = s.kind == "upgrade"
-        a = ask("    Run? [y/N/q] (upgrades always ask) " if force else "    Run? [y/N/a/q] ", state, force)
+        force = s.kind in ("upgrade", "config")
+        a = ask("    Run? [y/N/q] (%ss always ask) " % s.kind if force else "    Run? [y/N/a/q] ", state, force)
         if a == "q":
             state["quit"] = True
             s.status = "skipped"
@@ -960,7 +1089,7 @@ def main():
             print(red("  Hardcoded paths to versions that are NOT installed (already broken?):"))
             for _, f, ver in dl:
                 print("      %s  %s" % (tilde(f), dim(ver)))
-        st, notes, optional = build_steps(rt, groups, defaults[rt])
+        st, notes, optional = build_steps(rt, groups, defaults[rt], rdeps, inst)
         steps += st
         all_notes += notes
         optional_by_rt[rt] = optional
