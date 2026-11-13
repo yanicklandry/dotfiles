@@ -1,0 +1,997 @@
+#!/usr/bin/python3
+"""runtime-audit: which nvm Node and pyenv Python versions are used by which
+projects, plus a suggested migrate/delete plan you can review and run.
+
+Usage: runtime-audit [--node | --python] [--write FILE | --apply [--yes]] [ROOT ...]
+  ROOT          dirs to scan for projects (default: ~/Developer ~/Documents)
+  --node        only Node (nvm)
+  --python      only Python (pyenv)
+  --write FILE  write the suggested commands to FILE (then: bash FILE)
+  --apply       run the plan step by step, asking y/n/a/q for each (default: no)
+  --yes         with --apply, answer yes to everything
+
+Without --apply nothing is changed. With --apply, a version is only
+uninstalled once every migration away from it succeeded; skipping or failing a
+migration also skips that uninstall. Optional EOL upgrades are never applied.
+
+Rules used for the plan:
+  - Versions are grouped by compatibility: Node by major (22.x), Python by
+    minor (3.12.x). Moving within a group is low-risk.
+  - In each group the most-used version is the target (ties: newest). Projects
+    pinned to another version of the same group are migrated to it, then the
+    other versions are deleted.
+  - A version nobody uses (and that is not the nvm default / pyenv global) is
+    deleted.
+  - End-of-life groups get a commented-out "consider upgrading" section, since
+    jumping majors/minors can break things.
+Uses: .nvmrc, .node-version, .tool-versions, package.json volta, .python-version,
+virtualenvs (any dir with pyvenv.cfg, plus pipenv envs), pyenv-virtualenv envs.
+Also keeps any version hardcoded in LaunchAgents, Claude/Cursor/VS Code/Codex
+configs, shell rc files, crontab and ~/.local/bin or ~/bin shebangs.
+Informational only: package.json engines, requires-python, Pipfile python_version.
+"""
+import json
+import os
+import re
+import shlex
+import subprocess
+import sys
+from collections import defaultdict
+
+HOME = os.path.expanduser("~")
+NVM_DIR = os.environ.get("NVM_DIR", os.path.join(HOME, ".nvm"))
+PYENV_ROOT = os.environ.get("PYENV_ROOT", os.path.join(HOME, ".pyenv"))
+PIPENV_DIR = os.environ.get("WORKON_HOME", os.path.join(HOME, ".local/share/virtualenvs"))
+
+PRUNE = {"node_modules", "Library", "Pods", "dist", "build", "target", "__pycache__",
+         "DerivedData", "vendor", "site-packages"}
+MAX_DEPTH = 8
+
+TTY = sys.stdout.isatty()
+def c(code, s): return "\033[%sm%s\033[0m" % (code, s) if TTY else s
+def bold(s): return c("1", s)
+def dim(s): return c("2", s)
+def yellow(s): return c("1;33", s)
+def red(s): return c("0;31", s)
+def green(s): return c("0;32", s)
+def blue(s): return c("0;34", s)
+
+q = shlex.quote
+
+
+# ----------------------------------------------------------------- helpers
+
+def tilde(p):
+    return "~" + p[len(HOME):] if p == HOME or p.startswith(HOME + "/") else p
+
+def read(path):
+    try:
+        with open(path, encoding="utf-8", errors="replace") as f:
+            return f.read()
+    except OSError:
+        return ""
+
+def first_spec(text):
+    for line in text.splitlines():
+        line = line.split("#", 1)[0].strip()
+        if line:
+            return line
+    return ""
+
+def parse_ver(s):
+    m = re.match(r"^v?(\d+)(?:\.(\d+))?(?:\.(\d+))?$", s.strip())
+    if not m:
+        return None
+    return tuple(int(x) for x in m.groups() if x is not None)
+
+def vstr(rt, parts, vpref=None):
+    s = ".".join(str(x) for x in parts)
+    if vpref is None:
+        vpref = rt == "node"
+    return ("v" + s) if vpref else s
+
+def human_kb(kb):
+    units = ["K", "M", "G", "T"]
+    i, v = 0, float(kb)
+    while v >= 1024 and i < 3:
+        v /= 1024
+        i += 1
+    return ("%d%s" if i == 0 else "%.1f%s") % (v, units[i])
+
+def du_kb(path):
+    try:
+        out = subprocess.run(["du", "-sk", path], capture_output=True, text=True).stdout
+        return int(out.split()[0])
+    except Exception:
+        return 0
+
+def satisfies(spec, parts):
+    """Rough npm-semver / PEP 440 check. True/False, or None if unsure."""
+    pad = lambda t: t + (0,) * (3 - len(t))
+    any_ok = False
+    for alt in spec.split("||"):
+        ok = True
+        for comp in [x for x in re.split(r"[,\s]+", alt.strip()) if x]:
+            m = re.match(r"^(>=|<=|>|<|==|=|\^|~=|~)?v?(\d+(?:\.(?:\d+|x|\*))*)$", comp)
+            if not m:
+                return None
+            op = m.group(1) or ""
+            n = []
+            for x in m.group(2).split("."):
+                if x in ("x", "*"):
+                    break
+                n.append(int(x))
+            n, k = tuple(n), len(n)
+            if op in ("", "=", "=="):
+                good = parts[:k] == n
+            elif op == ">=":
+                good = parts >= pad(n)
+            elif op == ">":
+                good = parts[:k] > n
+            elif op == "<":
+                good = parts < pad(n)
+            elif op == "<=":
+                good = parts[:k] <= n
+            elif op == "^":
+                good = parts[0] == n[0] and parts >= pad(n)
+            elif op == "~":
+                good = parts[:min(k, 2)] == n[:2] and parts >= pad(n)
+            else:  # ~=
+                good = parts[:k - 1] == n[:k - 1] and parts >= pad(n)
+            ok = ok and good
+        any_ok = any_ok or ok
+    return any_ok
+
+def eol(rt, group):
+    # Status as of late 2026; update as releases age.
+    if rt == "node":
+        major = group[0]
+        if major % 2 or major <= 20:
+            return "EOL"
+        return {22: "EOL 2027-04", 24: "EOL 2028-04"}.get(major, "")
+    if group[0] != 3:
+        return "EOL"
+    minor = group[1]
+    if minor <= 10:
+        return "EOL"
+    return {11: "EOL 2027-10", 12: "EOL 2028-10"}.get(minor, "")
+
+
+# ----------------------------------------------------------- installed set
+
+class Installed:
+    def __init__(self, rt, name, parts, path):
+        self.rt, self.name, self.parts, self.path = rt, name, parts, path
+        self.kb = 0
+        self.globals = []
+
+def installed_node():
+    base = os.path.join(NVM_DIR, "versions", "node")
+    out = []
+    for name in sorted(os.listdir(base)) if os.path.isdir(base) else []:
+        parts = parse_ver(name)
+        if parts and len(parts) == 3:
+            v = Installed("node", name, parts, os.path.join(base, name))
+            nm = os.path.join(v.path, "lib", "node_modules")
+            for p in sorted(os.listdir(nm)) if os.path.isdir(nm) else []:
+                if p.startswith("@"):
+                    sub = os.path.join(nm, p)
+                    v.globals += ["%s/%s" % (p, s) for s in sorted(os.listdir(sub))
+                                  if not s.startswith(".")]  # npm leftovers
+                elif p not in ("npm", "corepack") and not p.startswith("."):
+                    v.globals.append(p)
+            out.append(v)
+    return out
+
+def installed_python():
+    base = os.path.join(PYENV_ROOT, "versions")
+    out, other = [], []
+    for name in sorted(os.listdir(base)) if os.path.isdir(base) else []:
+        path = os.path.join(base, name)
+        if os.path.islink(path):
+            continue  # pyenv-virtualenv alias, handled via versions/X/envs
+        parts = parse_ver(name)
+        if parts and len(parts) == 3:
+            out.append(Installed("python", name, parts, path))
+        else:
+            other.append(name)
+    return out, other
+
+def resolve(parts, installed):
+    """Like nvm/pyenv: a prefix such as 22 or 3.12 picks the newest match."""
+    matches = [v for v in installed if v.parts[:len(parts)] == parts]
+    return max(matches, key=lambda v: v.parts) if matches else None
+
+def nvm_alias(name, installed, depth=0):
+    if depth > 5 or not installed:
+        return None
+    if name in ("node", "stable"):
+        return max(installed, key=lambda v: v.parts)
+    if name in ("system", "iojs"):
+        return None
+    path = os.path.join(NVM_DIR, "alias", name)
+    if not os.path.isfile(path):
+        return None
+    spec = first_spec(read(path))
+    parts = parse_ver(spec)
+    return resolve(parts, installed) if parts else nvm_alias(spec, installed, depth + 1)
+
+
+# ------------------------------------------------------------------- deps
+
+class Dep:
+    """One reason a project needs a runtime version."""
+    def __init__(self, rt, project, file, src, spec=None, kind="pin", parts=None,
+                 vpref=False, resolved=None, venv=None, pipenv=False):
+        self.rt, self.project, self.file, self.src = rt, project, file, src
+        self.spec, self.kind, self.parts, self.vpref = spec, kind, parts, vpref
+        self.resolved, self.venv, self.pipenv = resolved, venv, pipenv
+
+    @property
+    def precision(self):
+        return len(self.parts) if self.parts else 3
+
+    def label(self):
+        if self.kind == "venv":
+            if self.pipenv:
+                return "pipenv env %s" % os.path.basename(self.venv)
+            return "%s (virtualenv)" % os.path.basename(self.venv)
+        if self.kind == "pyenv-venv":
+            return "pyenv-virtualenv %s" % self.spec
+        if self.kind == "external":
+            return "hardcoded path (config/service)"
+        s = '%s "%s"' % (self.src, self.spec)
+        if self.kind == "alias" and self.resolved:
+            s += " => %s" % self.resolved.name
+        return s
+
+def make_spec_dep(rt, project, file, src, spec, installed):
+    parts = parse_ver(spec)
+    if parts:
+        return Dep(rt, project, file, src, spec, "pin", parts,
+                   spec.startswith("v"), resolve(parts, installed))
+    if rt == "node":
+        r = nvm_alias(spec, installed)
+    else:
+        r = None
+        link = os.path.join(PYENV_ROOT, "versions", spec)
+        if spec != "system" and os.path.islink(link):
+            m = re.search(r"/versions/([^/]+)/envs/", os.path.realpath(link))
+            if m:
+                r = next((v for v in installed if v.name == m.group(1)), None)
+    if spec == "system":
+        return None
+    return Dep(rt, project, file, src, spec, "alias" if r else "unresolved", resolved=r)
+
+def venv_python(venv_dir):
+    cfg = read(os.path.join(venv_dir, "pyvenv.cfg"))
+    m = re.search(r"^home\s*=\s*(.+)$", cfg, re.M)
+    if not m:
+        return None
+    home = os.path.realpath(m.group(1).strip())
+    root = os.path.realpath(os.path.join(PYENV_ROOT, "versions")) + "/"
+    if not home.startswith(root):
+        return None  # uv-managed, Homebrew or system python: not pyenv's business
+    return home[len(root):].split("/")[0]
+
+
+def scan(roots, node_inst, py_inst):
+    deps = []
+    info = defaultdict(list)            # project dir => notes
+    pin_dirs = {"node": set(), "python": set()}
+    markers = {"node": set(), "python": set()}
+    venv_dirs = set()
+    by_name = {v.name: v for v in py_inst}
+
+    def add(d):
+        if d:
+            deps.append(d)
+            pin_dirs[d.rt].add(d.project)
+
+    for root in roots:
+        root = os.path.abspath(root)
+        base = root.rstrip("/").count("/")
+        for dirpath, dirs, files in os.walk(root):
+            if "pyvenv.cfg" in files:
+                dirs[:] = []
+                ver = venv_python(dirpath)
+                project = os.path.dirname(dirpath)
+                venv_dirs.add(project)
+                if ver:
+                    add(Dep("python", project, dirpath, "venv", kind="venv",
+                            resolved=by_name.get(ver), spec=ver, venv=dirpath))
+                continue
+            if dirpath.count("/") - base >= MAX_DEPTH:
+                dirs[:] = []
+            dirs[:] = [d for d in dirs if d not in PRUNE and
+                       (not d.startswith(".") or
+                        os.path.isfile(os.path.join(dirpath, d, "pyvenv.cfg")))]
+            fs = set(files)
+            j = lambda f: os.path.join(dirpath, f)
+
+            for f in (".nvmrc", ".node-version"):
+                if f in fs:
+                    spec = first_spec(read(j(f)))
+                    if spec:
+                        add(make_spec_dep("node", dirpath, j(f), f, spec, node_inst))
+            if ".python-version" in fs:
+                for line in read(j(".python-version")).split():
+                    add(make_spec_dep("python", dirpath, j(".python-version"),
+                                      ".python-version", line, py_inst))
+            if ".tool-versions" in fs:
+                for line in read(j(".tool-versions")).splitlines():
+                    bits = line.split("#", 1)[0].split()
+                    if len(bits) >= 2 and bits[0] == "nodejs":
+                        add(make_spec_dep("node", dirpath, j(".tool-versions"),
+                                          ".tool-versions", bits[1], node_inst))
+                    elif len(bits) >= 2 and bits[0] == "python":
+                        add(make_spec_dep("python", dirpath, j(".tool-versions"),
+                                          ".tool-versions", bits[1], py_inst))
+            if "package.json" in fs:
+                markers["node"].add(dirpath)
+                try:
+                    pkg = json.loads(read(j("package.json")) or "{}")
+                except ValueError:
+                    pkg = {}
+                if isinstance(pkg, dict):
+                    volta = (pkg.get("volta") or {}).get("node") if isinstance(pkg.get("volta"), dict) else None
+                    if volta:
+                        add(make_spec_dep("node", dirpath, j("package.json"),
+                                          "volta", str(volta), node_inst))
+                    eng = pkg.get("engines")
+                    if isinstance(eng, dict) and eng.get("node"):
+                        info[dirpath].append(("node", "engines.node", str(eng["node"])))
+            if fs & {"pyproject.toml", "requirements.txt", "Pipfile", "setup.py"}:
+                markers["python"].add(dirpath)
+                m = re.search(r"""^\s*requires-python\s*=\s*["']([^"']+)""",
+                              read(j("pyproject.toml")), re.M) if "pyproject.toml" in fs else None
+                if m:
+                    info[dirpath].append(("python", "requires-python", m.group(1)))
+                m = re.search(r"""^\s*python_(?:full_)?version\s*=\s*["']([^"']+)""",
+                              read(j("Pipfile")), re.M) if "Pipfile" in fs else None
+                if m:
+                    info[dirpath].append(("python", "Pipfile python", m.group(1)))
+
+    # pipenv's central envs (~/.local/share/virtualenvs)
+    orphans = []
+    if os.path.isdir(PIPENV_DIR):
+        for name in sorted(os.listdir(PIPENV_DIR)):
+            env = os.path.join(PIPENV_DIR, name)
+            ver = venv_python(env) if os.path.isfile(os.path.join(env, "pyvenv.cfg")) else None
+            if ver:
+                project = read(os.path.join(env, ".project")).strip() or env
+                if not os.path.isdir(project):
+                    orphans.append((env, project, ver, du_kb(env)))
+                    continue
+                venv_dirs.add(project)
+                add(Dep("python", project, env, "pipenv", kind="venv", spec=ver,
+                        resolved=by_name.get(ver), venv=env, pipenv=True))
+
+    # pyenv-virtualenv envs live inside the version they were built from
+    for v in py_inst:
+        envs = os.path.join(v.path, "envs")
+        for name in sorted(os.listdir(envs)) if os.path.isdir(envs) else []:
+            add(Dep("python", envs, os.path.join(envs, name), "pyenv-virtualenv",
+                    spec=name, kind="pyenv-venv", resolved=v))
+
+    # Top-level projects with no pin anywhere up the tree run on the default.
+    def has_pin_above(rt, d):
+        while d.startswith(HOME) and d != "/":
+            if d in pin_dirs[rt] or (rt == "python" and d in venv_dirs):
+                return True
+            d = os.path.dirname(d)
+        return False
+    unpinned = {}
+    for rt in ("node", "python"):
+        tops = [d for d in markers[rt]
+                if not any(os.path.dirname(d).startswith(o + "/") or os.path.dirname(d) == o
+                           for o in markers[rt] if o != d)]
+        unpinned[rt] = sorted(d for d in tops if not has_pin_above(rt, d))
+    return deps, info, unpinned, orphans
+
+
+# ------------------------------------------- hardcoded paths outside projects
+
+EXT_FILES = [".claude.json", ".claude/settings.json", ".claude/settings.local.json",
+             ".zshrc", ".zprofile", ".zshenv", ".bashrc", ".bash_profile", ".profile",
+             ".codex/config.toml", ".cursor/mcp.json",
+             "Library/Application Support/Code/User/settings.json",
+             "Library/Application Support/Cursor/User/settings.json"]
+EXT_DIRS = [("Library/LaunchAgents", 1), ("Library/Application Support/Claude", 1),
+            (".cursor", 2), (".codeium", 3), (".config", 3), (".local/bin", 1), ("bin", 1)]
+EXT_RE = {"node": re.compile(r"\.nvm/versions/node/(v\d+\.\d+\.\d+)"),
+          "python": re.compile(r"\.pyenv/versions/(\d+\.\d+\.\d+)")}
+
+def scan_external(node_inst, py_inst):
+    """Deps for interpreter paths hardcoded in configs/services, plus dangling ones."""
+    files = [os.path.join(HOME, f) for f in EXT_FILES]
+    for d, depth in EXT_DIRS:
+        root = os.path.join(HOME, d)
+        base = root.count("/")
+        for dirpath, dirs, fs in os.walk(root):
+            if dirpath.count("/") - base >= depth - 1:
+                dirs[:] = []
+            files += [os.path.join(dirpath, f) for f in fs]
+    texts = [(f, None) for f in files]
+    try:
+        cron = subprocess.run(["crontab", "-l"], capture_output=True, text=True, timeout=5).stdout
+        texts.append(("crontab", cron))
+    except Exception:
+        pass
+    inst = {"node": {v.name: v for v in node_inst}, "python": {v.name: v for v in py_inst}}
+    deps, dangling, seen = [], [], set()
+    for f, text in texts:
+        if text is None:
+            try:
+                if not os.path.isfile(f) or os.path.getsize(f) > 1_000_000:
+                    continue
+                with open(f, "rb") as fh:
+                    raw = fh.read()
+                if b"\0" in raw[:4096]:
+                    continue
+                text = raw.decode("utf-8", "replace")
+            except OSError:
+                continue
+        for rt, rx in EXT_RE.items():
+            for ver in set(rx.findall(text)):
+                if (f, rt, ver) in seen:
+                    continue
+                seen.add((f, rt, ver))
+                v = inst[rt].get(ver)
+                if v:
+                    deps.append(Dep(rt, f, f, "hardcoded", spec=ver, kind="external", resolved=v))
+                else:
+                    dangling.append((rt, f, ver))
+    return deps, dangling
+
+
+# ------------------------------------------------------------------- plan
+
+def lockfile_install(project):
+    """Install command that respects the lockfile (never rewrites it)."""
+    has = lambda f: os.path.exists(os.path.join(project, f))
+    if has("pnpm-lock.yaml"):
+        return "pnpm install --frozen-lockfile"
+    if has("yarn.lock"):
+        return "yarn install --immutable" if has(".yarnrc.yml") else "yarn install --frozen-lockfile"
+    if has("bun.lock") or has("bun.lockb"):
+        return "bun install --frozen-lockfile"
+    if has("package-lock.json"):
+        return "npm ci"
+    return "npm install"
+
+def reinstall_cmd(project, target):
+    """Fresh node_modules built by the target Node."""
+    return "(cd %s && rm -rf node_modules && nvm exec --silent %s %s)" % (
+        q(project), target.name, lockfile_install(project))
+
+def reinstall_dirs(project):
+    """The project itself, or direct sub-packages that share its pin."""
+    has = lambda d, f: os.path.exists(os.path.join(d, f))
+    if has(project, "package.json"):
+        return [project] if has(project, "node_modules") else []
+    out = []
+    for name in sorted(os.listdir(project)) if os.path.isdir(project) else []:
+        sub = os.path.join(project, name)
+        if (has(sub, "package.json") and has(sub, "node_modules") and
+                not any(has(sub, f) for f in (".nvmrc", ".node-version", ".tool-versions"))):
+            out.append(sub)
+    return out
+
+def sed_escape(s):
+    return re.sub(r"([.\[\]()*+?{}|^$\\/])", r"\\\1", s)
+
+def engines_new(spec, target):
+    """'20.x' => '22.x', '>=20' => '>=22', '16.10.x' => '22.23.x'; None if not a simple spec."""
+    m = re.match(r"^(\s*(?:>=|\^|~|=)?\s*v?)(\d+(?:\.\d+)*)((?:\.[x*])*)\s*$", spec)
+    if not m:
+        return None
+    k = len(m.group(2).split("."))
+    return m.group(1) + ".".join(str(x) for x in target.parts[:k]) + m.group(3)
+
+def engines_sed(pkg, old, new):
+    return "sed -i '' -E %s %s" % (
+        q(r's/("node"[[:space:]]*:[[:space:]]*")%s"/\1%s"/' % (sed_escape(old), new.replace("/", r"\/"))), q(pkg))
+
+def guarded(fwd, files, back):
+    """Run fwd; on any failure restore files and run back (rollback), then fail."""
+    fwd = [x.split("  # ")[0] for x in fwd]
+    out = ["bak=$(mktemp -d)"]
+    out += ['cp %s "$bak/%d"' % (q(f), i) for i, f in enumerate(files)]
+    out.append("if ! ( %s ); then" % " && ".join(fwd))
+    out.append('  echo "upgrade failed, rolling back" >&2')
+    out += ['  cp "$bak/%d" %s' % (i, q(f)) for i, f in enumerate(files)]
+    out += ['  %s || echo "rollback reinstall failed, run it by hand" >&2' % x.split("  # ")[0] for x in back]
+    out.append("  exit 1")
+    out.append("fi")
+    return "\n".join(out)
+
+def rewrite_cmd(d, target):
+    """Shell command that repoints a pin file to target (same precision)."""
+    new = vstr(d.rt, target.parts[:d.precision], d.vpref)
+    old = sed_escape(d.spec)
+    f = q(d.file)
+    if d.src in (".nvmrc", ".node-version", ".python-version"):
+        return "sed -i '' -E %s %s" % (q(r"s/(^|[[:space:]])%s([[:space:]#]|$)/\1%s\2/" % (old, new)), f)
+    if d.src == ".tool-versions":
+        tool = "nodejs" if d.rt == "node" else "python"
+        return "sed -i '' -E %s %s" % (q(r"s/^(%s[[:space:]]+)%s([[:space:]]|$)/\1%s\2/" % (tool, old, new)), f)
+    if d.src == "volta":
+        return "sed -i '' -E %s %s" % (q(r's/("node"[[:space:]]*:[[:space:]]*")%s"/\1%s"/' % (old, new)), f)
+    return "# edit %s by hand: %s => %s" % (tilde(d.file), d.spec, new)
+
+def venv_cmd(d, target):
+    """Recreate a virtualenv on target (venvs hard-link to their interpreter)."""
+    py = q(os.path.join(target.path, "bin", "python"))
+    p, v = q(d.project), q(os.path.basename(d.venv))
+    has = lambda f: os.path.exists(os.path.join(d.project, f))
+    if d.pipenv or (has("Pipfile") and not has("uv.lock") and not has("poetry.lock")):
+        inproj = "" if d.pipenv else "PIPENV_VENV_IN_PROJECT=1 "
+        return "(cd %s && { pipenv --rm || true; } && %spipenv install --dev --python %s)" % (p, inproj, py)
+    if has("uv.lock") and os.path.basename(d.venv) == ".venv":
+        return "(cd %s && rm -rf .venv && uv venv --python %s && uv sync)" % (p, py)
+    if has("poetry.lock"):
+        return "(cd %s && rm -rf %s && poetry env use %s && poetry install)" % (p, v, py)
+    reinstall = ""
+    if has("requirements.txt"):
+        reinstall = " && %s/bin/pip install -r requirements.txt" % v
+    elif has("pyproject.toml") or has("setup.py"):
+        reinstall = " && %s/bin/pip install -e ." % v
+    cmd = "(cd %s && rm -rf %s && %s -m venv %s%s)" % (p, v, py, v, reinstall)
+    return cmd if reinstall else cmd + "  # then reinstall its packages"
+
+def migrate_cmds(d, target, cross=False):
+    if d.kind == "venv":
+        return [venv_cmd(d, target)]
+    cmds = [rewrite_cmd(d, target)]
+    if cross and d.rt == "node":  # new major => new native ABI
+        cmds += [reinstall_cmd(p, target) for p in (reinstall_dirs(d.project) or [d.project])]
+    return cmds
+
+def plan(rt, installed, deps, defaults):
+    glen = 1 if rt == "node" else 2
+    groups = defaultdict(list)
+    for v in installed:
+        groups[v.parts[:glen]].append(v)
+    result = []
+    for g in sorted(groups):
+        vs = sorted(groups[g], key=lambda v: v.parts)
+        gdeps = [d for d in deps if d.resolved in vs]
+        movable = [d for d in gdeps if d.kind == "venv" or (d.kind == "pin" and d.precision > glen)]
+        sticky = [d for d in gdeps if d.kind in ("alias", "pyenv-venv", "external")]
+        floating = [d for d in gdeps if d.kind == "pin" and d.precision <= glen]
+        score = {v.name: 0 for v in vs}
+        for d in movable + sticky + floating:
+            score[d.resolved.name] += 1
+        keep = {d.resolved.name for d in sticky} | {v.name for v in vs if v.name in defaults}
+        for v in vs:
+            if v.name in defaults:
+                score[v.name] += 1
+        target = None
+        if any(score.values()):
+            target = max(vs, key=lambda v: (score[v.name], v.parts))
+        elif floating:
+            target = vs[-1]
+        if target:
+            keep.add(target.name)
+        migrations = [(d, target) for d in movable if d.resolved.name not in keep]
+        deletions = [v for v in vs if v.name not in keep]
+        result.append(dict(group=g, versions=vs, deps=gdeps, target=target, keep=keep,
+                           migrations=migrations, deletions=deletions, score=score))
+    return result
+
+
+# ----------------------------------------------------------------- report
+
+def report(rt, installed, deps, info, unpinned, defaults, groups, other):
+    title = "Node (nvm)" if rt == "node" else "Python (pyenv)"
+    dflt = ", ".join(sorted(defaults)) or ("none" if rt == "node" else "system python")
+    print(bold("\n%s" % title) + dim("   %s: %s" % ("default" if rt == "node" else "global", dflt)))
+    if not installed:
+        print(dim("  nothing installed"))
+        return
+    for grp in groups:
+        status = eol(rt, grp["group"])
+        for v in grp["versions"]:
+            vd = [d for d in grp["deps"] if d.resolved is v]
+            tags = []
+            if v.name in defaults:
+                tags.append(blue("default" if rt == "node" else "global"))
+            if status:
+                tags.append(red(status) if status == "EOL" else yellow(status))
+            uses = "%d use%s" % (len(vd), "" if len(vd) == 1 else "s")
+            if not vd and v.name not in defaults:
+                uses = yellow("unused")
+            print("  %-10s %7s  %-8s %s" % (v.name, human_kb(v.kb), uses, " ".join(tags)))
+            for d in sorted(vd, key=lambda d: d.project):
+                note = ""
+                if d.kind == "pin" and d.precision <= (1 if rt == "node" else 2):
+                    note = dim(" (floats to newest %s.x)" % vstr(rt, grp["group"]))
+                extra = notes_for(rt, d.project)
+                extra = dim("  [%s]" % "; ".join(extra)) if extra else ""
+                print("      %s  %s%s%s" % (tilde(d.project), dim(d.label()), note, extra))
+            if v.globals:
+                print(dim("      globals: %s" % ", ".join(v.globals)))
+    if rt == "python" and ORPHANS:
+        print(yellow("  Orphan pipenv envs (project folder is gone):"))
+        for env, project, ver, kb in ORPHANS:
+            print("      %s  %s" % (tilde(env), dim("%s, %s, was %s" % (ver, human_kb(kb), tilde(project)))))
+    if other:
+        print(dim("  not analyzed (non-CPython or custom builds): %s" % ", ".join(other)))
+    bad = [d for d in deps if d.resolved is None]
+    if bad:
+        print(yellow("  Pinned to versions that are not installed:"))
+        for d in sorted(bad, key=lambda d: d.project):
+            print("      %s  %s" % (tilde(d.project), dim(d.label())))
+    n = len(unpinned)
+    if n:
+        print(dim("  %d project%s with no pin use the %s (%s)"
+                  % (n, "" if n == 1 else "s", "default" if rt == "node" else "global", dflt)))
+
+
+def uninstall_cmd(rt, v):
+    return "nvm uninstall %s" % v.name if rt == "node" else "pyenv uninstall -f %s" % v.name
+
+def git_note(path):
+    """'tracked in <repo>' if git tracks this file, so client repos stand out."""
+    d = os.path.dirname(path)
+    try:
+        top = subprocess.run(["git", "-C", d, "rev-parse", "--show-toplevel"],
+                             capture_output=True, text=True, timeout=5)
+        if top.returncode:
+            return ""
+        tracked = subprocess.run(["git", "-C", d, "ls-files", "--error-unmatch", path],
+                                 capture_output=True, text=True, timeout=5).returncode == 0
+        return "git: %s in %s" % ("tracked" if tracked else "untracked", tilde(top.stdout.strip()))
+    except Exception:
+        return ""
+
+def pin_ok(d, new):
+    """After a rewrite: the new spec is present and the old one is gone."""
+    text = read(d.file)
+    tok = lambda s: re.search(r"(^|[\s\"'])%s([\s\"'#]|$)" % re.escape(s), text, re.M)
+    return bool(tok(new)) and not tok(d.spec)
+
+class Step:
+    def __init__(self, rt, kind, title, cmds, comments=(), requires=(), soft=(),
+                 check=None, kb=0, in_script=True):
+        self.rt, self.kind, self.title, self.cmds = rt, kind, title, list(cmds)
+        self.comments, self.requires, self.soft = list(comments), list(requires), list(soft)
+        self.check, self.kb, self.in_script = check, kb, in_script
+        self.status = None  # ok | failed | skipped
+        self.optional = kind == "upgrade"
+
+def build_steps(rt, groups, defaults):
+    """Executable steps plus commented-out optional lines."""
+    steps, notes, optional = [], [], []
+    for grp in groups:
+        gname = vstr(rt, grp["group"]) + ".x"
+        t = grp["target"]
+        moved_from = defaultdict(list)  # version name => migration steps
+        by_from = defaultdict(list)
+        for d, _ in grp["migrations"]:
+            by_from[d.resolved.name].append(d)
+        for frm, ds in sorted(by_from.items()):
+            down = " (downgrade)" if next(v for v in grp["versions"] if v.name == frm).parts > t.parts else ""
+            notes.append("Migrate %d use%s %s => %s%s, the most used in %s"
+                         % (len(ds), "" if len(ds) == 1 else "s", frm, t.name, down, gname))
+            for d in sorted(ds, key=lambda d: d.project):
+                com = notes_for(rt, d.project)
+                com = ["[%s]" % "; ".join(com)] if com else []
+                g = git_note(d.file) if d.kind == "pin" else ""
+                if g:
+                    com.append(g)
+                com += [x[2:] for x in range_warning(d, t)]
+                new = vstr(rt, t.parts[:d.precision], d.vpref)
+                if d.kind == "pin":
+                    check = (lambda d=d, new=new: pin_ok(d, new))
+                else:
+                    check = (lambda d=d, t=t: not os.path.isfile(os.path.join(d.venv, "pyvenv.cfg"))
+                             or venv_python(d.venv) == t.name)
+                st = Step(rt, "migrate", "%s: %s => %s%s" % (tilde(d.project), frm, t.name, down),
+                          migrate_cmds(d, t), com, check=check)
+                steps.append(st)
+                moved_from[frm].append(st)
+                if rt == "node" and d.kind == "pin":
+                    for pdir in reinstall_dirs(d.project):
+                        steps.append(Step(rt, "reinstall", "%s: reinstall packages on %s"
+                                          % (tilde(pdir), t.name), [reinstall_cmd(pdir, t)],
+                                          ["lockfile is not modified (frozen install)"],
+                                          requires=[st],
+                                          check=lambda pdir=pdir: os.path.isdir(os.path.join(pdir, "node_modules"))))
+        for v in grp["deletions"]:
+            moved = moved_from.get(v.name, [])
+            why = "after migration" if moved else "unused"
+            notes.append("Delete %s (%s, %s)" % (v.name, human_kb(v.kb), why))
+            soft = []
+            if v.globals:
+                dest = t.name if t else (sorted(defaults)[0] if defaults else "")
+                if dest:
+                    gs = Step(rt, "globals", "reinstall %s's globals into %s" % (v.name, dest),
+                              ["nvm exec %s npm i -g %s" % (dest, " ".join(q(x) for x in v.globals))],
+                              ["globals: %s" % " ".join(v.globals)], in_script=False)
+                    steps.append(gs)
+                    soft.append(gs)
+            steps.append(Step(rt, "delete", "uninstall %s (%s, %s)" % (v.name, human_kb(v.kb), why),
+                              [uninstall_cmd(rt, v)], requires=moved, soft=soft, kb=v.kb,
+                              check=lambda v=v: not os.path.exists(v.path)))
+
+    # End-of-life groups still in use: cross-version upgrade steps. They always
+    # ask (even with "a" / --yes), roll back on failure, and the old version is
+    # only uninstalled when every project on it upgraded.
+    supported = [g for g in groups if g["target"] and eol(rt, g["group"]) != "EOL"]
+    for grp in groups:
+        if eol(rt, grp["group"]) != "EOL" or not grp["keep"]:
+            continue
+        above = [g for g in supported if g["group"] > grp["group"]]
+        ds = [d for d in grp["deps"] if d.kind in ("pin", "venv")]
+        if not above or not ds:
+            continue
+        up = min(above, key=lambda g: g["group"])["target"]
+        gname = vstr(rt, grp["group"]) + ".x"
+        if grp["migrations"]:
+            notes.append("Consider upgrading %s => %s (rerun after this run's migrations)" % (gname, up.name))
+            continue
+        notes.append("Consider upgrading %s (EOL, %d use%s) => %s, asked one by one"
+                     % (gname, len(ds), "" if len(ds) == 1 else "s", up.name))
+        up_steps = defaultdict(list)
+        for d in sorted(ds, key=lambda d: d.project):
+            old = d.resolved
+            com = ["UPGRADE %s => %s: run and test the project afterwards" % (old.name, up.name)]
+            com += ["[%s]" % x for x in notes_for(rt, d.project)]
+            if d.kind == "pin":
+                g = git_note(d.file)
+                if g:
+                    com.append(g)
+                fwd, files, back = [rewrite_cmd(d, up)], [d.file], []
+                pkg = os.path.join(d.project, "package.json")
+                for r, k, spec in INFO.get(d.project, []):
+                    if r == rt and k == "engines.node" and satisfies(spec, up.parts) is False:
+                        new = engines_new(spec, up)
+                        if new:
+                            fwd.append(engines_sed(pkg, spec, new))
+                            if pkg not in files:
+                                files.append(pkg)
+                            com.append('package.json engines.node "%s" => "%s"' % (spec, new))
+                        else:
+                            com.append('WARNING: engines.node "%s" excludes %s, edit it by hand' % (spec, up.name))
+                    elif r == rt and k == "requires-python" and satisfies(spec, up.parts) is False:
+                        com.append('WARNING: requires-python "%s" excludes %s, edit it by hand' % (spec, up.name))
+                dirs = reinstall_dirs(d.project) if rt == "node" else []
+                fwd += [reinstall_cmd(x, up) for x in dirs]
+                back += [reinstall_cmd(x, old) for x in dirs]
+                if rt == "node" and not dirs:
+                    com.append("no node_modules here, so nothing is installed or tested")
+                new_spec = vstr(rt, up.parts[:d.precision], d.vpref)
+                check = (lambda d=d, n=new_spec: pin_ok(d, n))
+            else:
+                fwd, files, back = [venv_cmd(d, up)], [], [venv_cmd(d, old)]
+                check = (lambda d=d, up=up: not os.path.isfile(os.path.join(d.venv, "pyvenv.cfg"))
+                         or venv_python(d.venv) == up.name)
+            st = Step(rt, "upgrade", "%s: upgrade %s => %s" % (tilde(d.project), old.name, up.name),
+                      [guarded(fwd, files, back)], com, check=check, in_script=False)
+            steps.append(st)
+            up_steps[old.name].append(st)
+        for v in grp["versions"]:
+            if v.name not in grp["keep"] or v.name in defaults:
+                continue
+            pinned_elsewhere = [d for d in grp["deps"] if d.resolved is v and d.kind not in ("pin", "venv")]
+            if pinned_elsewhere:
+                notes.append("Keep %s after upgrading: still used by %s"
+                             % (v.name, ", ".join(tilde(d.project) for d in pinned_elsewhere)))
+                continue
+            steps.append(Step(rt, "delete", "uninstall %s (%s, after upgrades)" % (v.name, human_kb(v.kb)),
+                              [uninstall_cmd(rt, v)], requires=up_steps.get(v.name, []), kb=v.kb,
+                              check=lambda v=v: not os.path.exists(v.path), in_script=False))
+            steps[-1].optional = True
+
+    if rt == "python":
+        for env, project, ver, kb in ORPHANS:
+            notes.append("Delete orphan pipenv env %s (%s, project gone)" % (os.path.basename(env), human_kb(kb)))
+            steps.append(Step(rt, "delete", "remove orphan pipenv env %s (%s, project was %s)"
+                              % (os.path.basename(env), human_kb(kb), tilde(project)),
+                              ["rm -rf %s" % q(env)], kb=kb, check=lambda env=env: not os.path.exists(env)))
+    return steps, notes, optional
+
+
+NVM_PRELUDE = 'export NVM_DIR="${NVM_DIR:-$HOME/.nvm}"; . "$NVM_DIR/nvm.sh"'
+
+def render_script(steps, optional_by_rt):
+    out = ["#!/bin/bash",
+           "# Generated by runtime-audit. Review before running: bash <this file>",
+           "# (runtime-audit --apply does the same, step by step, with checks.)"]
+    if any(s.rt == "node" for s in steps):
+        out.append(NVM_PRELUDE)
+    out.append("set -e")
+    for rt in ("node", "python"):
+        rs = [s for s in steps if s.rt == rt]
+        if not rs and not optional_by_rt.get(rt):
+            continue
+        out.append("\n# ===== %s =====" % ("Node (nvm)" if rt == "node" else "Python (pyenv)"))
+        for s in rs:
+            out.append("\n# %s" % s.title)
+            out += ["# " + c_ for c_ in s.comments]
+            for c_ in s.cmds:  # comment out EVERY line of multi-line commands
+                out += c_.split("\n") if s.in_script else ["# " + x for x in c_.split("\n")]
+        out += optional_by_rt.get(rt, [])
+    return "\n".join(out) + "\n"
+
+def ask(prompt, state, force=False):
+    if state["all"] and not force:
+        return "y"
+    while True:
+        try:
+            with open("/dev/tty") as tty:
+                sys.stdout.write(prompt)
+                sys.stdout.flush()
+                a = tty.readline().strip().lower()
+        except OSError:
+            return "n" if force else "q"
+        if a in ("", "n", "no"):
+            return "n"
+        if a in ("y", "yes", "a", "q"):
+            if a == "a":
+                state["all"] = True
+                return "y"
+            return a
+        print("  y = yes, n = no (default), a = yes to all remaining, q = quit")
+
+def apply_steps(steps, assume_yes):
+    state = {"all": assume_yes, "quit": False}
+    freed = 0
+    print(bold("\nApplying") + dim("  (y = yes, n = no [default], a = yes to all, q = quit)"))
+    for i, s in enumerate(steps, 1):
+        head = "\n[%d/%d] %s" % (i, len(steps), bold(s.title))
+        blocked = [r for r in s.requires if r.status != "ok"] + [r for r in s.soft if r.status == "failed"]
+        if state["quit"] or blocked:
+            s.status = "skipped"
+            why = "quit" if state["quit"] else "a migration it depends on was skipped or failed"
+            print(head + dim("  skipped: %s" % why))
+            continue
+        print(head)
+        for c_ in s.comments:
+            print("    " + (yellow(c_) if c_.startswith("WARNING") else dim(c_)))
+        for c_ in s.cmds:
+            print(dim("    $ " + c_))
+        force = s.kind == "upgrade"
+        a = ask("    Run? [y/N/q] (upgrades always ask) " if force else "    Run? [y/N/a/q] ", state, force)
+        if a == "q":
+            state["quit"] = True
+            s.status = "skipped"
+            continue
+        if a != "y":
+            s.status = "skipped"
+            continue
+        script = (NVM_PRELUDE + " >/dev/null 2>&1\n" if s.rt == "node" else "") + "set -e\n" + "\n".join(s.cmds)
+        sys.stdout.flush()
+        rc = subprocess.run(["bash", "-c", script]).returncode
+        ok = rc == 0 and (s.check is None or s.check())
+        s.status = "ok" if ok else "failed"
+        if ok:
+            freed += s.kb
+            print(green("    done"))
+        else:
+            print(red("    FAILED (exit %d%s)" % (rc, ", check did not pass" if rc == 0 else "")))
+    n = lambda st: sum(1 for s in steps if s.status == st)
+    print(bold("\nSummary: ") + "%s done, %s skipped, %s failed. Freed about %s."
+          % (green(str(n("ok"))), n("skipped"), red(str(n("failed"))) if n("failed") else "0", human_kb(freed)))
+    if n("failed"):
+        sys.exit(1)
+
+
+INFO = {}
+ORPHANS = []
+DANGLING = []
+
+def notes_for(rt, project):
+    return ["%s %s" % (k, v) for r, k, v in INFO.get(project, []) if r == rt]
+
+def range_warning(d, target):
+    """Comment line if the project's declared range excludes target."""
+    for r, k, spec in INFO.get(d.project, []):
+        if r == d.rt and k in ("engines.node", "requires-python") and satisfies(spec, target.parts) is False:
+            where = "package.json" if k == "engines.node" else "pyproject.toml"
+            return ["# WARNING: %s %s \"%s\" excludes %s, update it too" % (where, k, spec, target.name)]
+    return []
+
+def main():
+    args = sys.argv[1:]
+    if "-h" in args or "--help" in args:
+        print(__doc__.strip())
+        return
+    want = {"node", "python"}
+    out_file, do_apply, assume_yes = None, False, False
+    roots = []
+    i = 0
+    while i < len(args):
+        a = args[i]
+        if a == "--node":
+            want = {"node"}
+        elif a == "--python":
+            want = {"python"}
+        elif a == "--write":
+            i += 1
+            out_file = args[i] if i < len(args) else None
+        elif a == "--apply":
+            do_apply = True
+        elif a in ("--yes", "-y"):
+            assume_yes = True
+        elif a.startswith("-"):
+            sys.exit("unknown option %s (see --help)" % a)
+        else:
+            roots.append(os.path.expanduser(a))
+        i += 1
+    if do_apply and out_file:
+        sys.exit("use either --write or --apply")
+    roots = [r for r in (roots or [os.path.join(HOME, "Developer"), os.path.join(HOME, "Documents")])
+             if os.path.isdir(r)]
+
+    node_inst = installed_node() if "node" in want else []
+    py_inst, py_other = installed_python() if "python" in want else ([], [])
+    print(dim("Scanning %s and config files ..." % ", ".join(tilde(r) for r in roots)), file=sys.stderr)
+    for v in node_inst + py_inst:
+        v.kb = du_kb(v.path)
+    deps, info, unpinned, orphans = scan(roots, node_inst, py_inst)
+    ext, dangling = scan_external(node_inst, py_inst)
+    deps += ext
+    ORPHANS[:] = orphans
+    DANGLING[:] = dangling
+    INFO.update(info)
+
+    defaults = {"node": set(), "python": set()}
+    d = nvm_alias("default", node_inst)
+    if d:
+        defaults["node"].add(d.name)
+    for spec in read(os.path.join(PYENV_ROOT, "version")).split():
+        parts = parse_ver(spec)
+        r = resolve(parts, py_inst) if parts else None
+        if r:
+            defaults["python"].add(r.name)
+
+    steps, all_notes, optional_by_rt = [], [], {}
+    for rt, inst, other in (("node", node_inst, []), ("python", py_inst, py_other)):
+        if rt not in want:
+            continue
+        rdeps = [x for x in deps if x.rt == rt]
+        groups = plan(rt, inst, rdeps, defaults[rt])
+        report(rt, inst, rdeps, info, unpinned[rt], defaults[rt], groups, other)
+        dl = [x for x in DANGLING if x[0] == rt]
+        if dl:
+            print(red("  Hardcoded paths to versions that are NOT installed (already broken?):"))
+            for _, f, ver in dl:
+                print("      %s  %s" % (tilde(f), dim(ver)))
+        st, notes, optional = build_steps(rt, groups, defaults[rt])
+        steps += st
+        all_notes += notes
+        optional_by_rt[rt] = optional
+
+    print(bold("\nPlan"))
+    if not all_notes:
+        print(green("  Nothing to do: every installed version is in use."))
+        return
+    for n in all_notes:
+        print(("  ? " + yellow(n)) if n.startswith("Consider") else "  - " + n)
+    freed = sum(s.kb for s in steps if not s.optional)
+    extra = sum(s.kb for s in steps if s.optional)
+    print(green("  Frees about %s" % human_kb(freed)) +
+          (dim(" (+%s if you accept the upgrades)" % human_kb(extra)) if extra else ""))
+
+    if do_apply:
+        if not steps:
+            print(dim("\nNothing to apply."))
+            return
+        if not assume_yes and not os.path.exists("/dev/tty"):
+            sys.exit("--apply needs a terminal to ask questions (or pass --yes)")
+        apply_steps(steps, assume_yes)
+        return
+    text = render_script(steps, optional_by_rt)
+    if out_file:
+        with open(os.path.expanduser(out_file), "w") as f:
+            f.write(text)
+        print("\nCommands written to %s  =>  review, then: bash %s" % (out_file, q(out_file)))
+    else:
+        print(bold("\nSuggested commands") + dim(" (review first; or --write FILE, or --apply)\n"))
+        print(text)
+
+if __name__ == "__main__":
+    main()

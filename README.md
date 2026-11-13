@@ -69,6 +69,7 @@ exist yet (as a real file, never a symlink — the actual secrets stay out of gi
 | `vpn_check.sh` | Detects active VPN via routing table |
 | `git-cleanup-merged-branches.sh` | Deletes local branches whose remotes are gone |
 | `dep-cleanup.sh` | Find and interactively delete first-level `node_modules` and `.venv` dirs |
+| `runtime-audit` | Show which nvm/pyenv versions are used where, then migrate and delete the rest (`--apply`) |
 | `brew-size.sh` | Lists Homebrew packages sorted by disk usage |
 | `fix-stremio.sh` | Reinstalls and re-signs Stremio (macOS) |
 | `restart_whisky.sh` | Clears Steam cache inside a Whisky bottle (macOS) |
